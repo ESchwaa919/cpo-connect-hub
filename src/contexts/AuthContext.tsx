@@ -10,6 +10,7 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  hasChecked: boolean
   login: (email: string) => Promise<void>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
@@ -19,9 +20,12 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // Start not loading — the landing page should render immediately without auth
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasChecked, setHasChecked] = useState(false)
 
   const checkAuth = useCallback(async () => {
+    setIsLoading(true)
     try {
       const res = await fetch("/api/auth/me", { credentials: "include" })
       if (res.ok) {
@@ -34,12 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
     } finally {
       setIsLoading(false)
+      setHasChecked(true)
     }
   }, [])
 
+  // Only check auth if a session cookie exists (avoid 401 noise on public pages)
   useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+    const hasCookie = document.cookie.includes("cpo_session")
+    if (hasCookie && !hasChecked) {
+      checkAuth()
+    }
+  }, [checkAuth, hasChecked])
 
   const login = useCallback(async (email: string) => {
     const res = await fetch("/api/auth/request", {
@@ -73,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        hasChecked,
         login,
         logout,
         checkAuth,

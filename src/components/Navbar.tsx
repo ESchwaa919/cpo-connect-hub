@@ -96,8 +96,8 @@ export function Navbar() {
             </span>
           </Link>
 
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center space-x-6">
+          {/* Desktop nav — right-aligned, matching original spec */}
+          <nav className="hidden md:flex items-center gap-8">
             {isLandingPage &&
               publicLinks.map((link) => (
                 <a
@@ -124,10 +124,6 @@ export function Navbar() {
                   {link.label}
                 </Link>
               ))}
-          </nav>
-
-          {/* Desktop actions */}
-          <div className="hidden md:flex items-center space-x-3">
             {!isAuthenticated && (
               <>
                 <Button
@@ -137,7 +133,7 @@ export function Navbar() {
                 >
                   Login
                 </Button>
-                <Button size="sm" asChild>
+                <Button size="sm" className="bg-primary text-primary-foreground rounded-lg" asChild>
                   <a
                     href="https://cpoconnect.fillout.com/application"
                     target="_blank"
@@ -186,7 +182,7 @@ export function Navbar() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-          </div>
+          </nav>
 
           {/* Mobile hamburger */}
           <button
