@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Menu, X, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
+import logo from "@/assets/logo.png"
 
 const publicLinks = [
   { label: "Manifesto", href: "#manifesto" },
@@ -86,11 +87,12 @@ export function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-lg">
         <div className="container flex h-16 items-center justify-between">
           <Link to="/" className="flex items-center space-x-2">
-            <span className="text-xl font-bold font-display bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              CPO Connect
+            <img src={logo} alt="CPO Connect" className="h-8 w-8" />
+            <span className="font-display text-lg font-bold tracking-tight">
+              CPO <span className="text-primary">Connect</span>
             </span>
           </Link>
 
