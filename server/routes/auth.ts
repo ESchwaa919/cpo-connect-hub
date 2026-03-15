@@ -70,13 +70,24 @@ router.post('/request', async (req, res) => {
 
     // Generate token and store in DB
     const token = crypto.randomBytes(32).toString('hex')
-    await pool.query(
-      'INSERT INTO cpo_connect.magic_link_tokens (email, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'15 minutes\')',
+    const insertResult = await pool.query(
+      'INSERT INTO cpo_connect.magic_link_tokens (email, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'15 minutes\') RETURNING id, expires_at',
       [email, token]
     )
+    const inserted = insertResult.rows[0] as { id: string; expires_at: string }
+    console.log('[request] Token inserted — id:', inserted.id, 'expires_at:', inserted.expires_at, 'token prefix:', token.slice(0, 8) + '...')
+
+    // Verify token can be read back immediately
+    const verifyInsert = await pool.query(
+      'SELECT id FROM cpo_connect.magic_link_tokens WHERE token = $1',
+      [token]
+    )
+    console.log('[request] Verify read-back — rows:', verifyInsert.rows.length)
 
     // Send email
+    console.log('[request] Sending magic link email to:', email)
     await sendMagicLink({ email, token, name: member.name })
+    console.log('[request] Email sent successfully')
 
     // Best-effort cleanup of expired tokens and sessions (fire-and-forget)
     pool.query('DELETE FROM cpo_connect.magic_link_tokens WHERE expires_at < NOW()').catch(() => {})
