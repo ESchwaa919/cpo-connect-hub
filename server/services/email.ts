@@ -44,7 +44,7 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     .header {
-      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      background: #0a0a0a;
       padding: 32px 40px;
       text-align: center;
     }
@@ -71,7 +71,7 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
     .btn {
       display: inline-block;
       padding: 14px 36px;
-      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      background: #a855f7;
       color: #ffffff !important;
       text-decoration: none;
       border-radius: 8px;
@@ -91,7 +91,7 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
       word-break: break-all;
     }
     .fallback a {
-      color: #3b82f6;
+      color: #a855f7;
     }
     .footer {
       padding: 24px 40px;
