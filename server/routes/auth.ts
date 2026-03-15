@@ -84,15 +84,9 @@ router.post('/request', async (req, res) => {
 
     res.status(200).json({ code: 'magic_link_sent', memberStatus: 'sent' })
   } catch (err) {
-    const errorMsg = (err as Error).message
-    console.error('POST /request error:', errorMsg)
+    console.error('POST /request error:', (err as Error).message)
     // Always return 200 to prevent email enumeration
-    // Include error hint so setup issues are visible (not a security risk — doesn't reveal member data)
-    res.status(200).json({
-      code: 'magic_link_sent',
-      memberStatus: 'not_found',
-      _serviceError: errorMsg,
-    })
+    res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
   }
 })
 
