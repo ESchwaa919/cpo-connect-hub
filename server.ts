@@ -21,6 +21,39 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
+// Temporary debug endpoint — remove after data model research
+app.get('/api/debug/sheet-schema', async (_req, res) => {
+  try {
+    const { google } = await import('googleapis')
+    const raw = process.env.GOOGLE_SHEETS_CREDENTIALS
+    if (!raw) { res.status(500).json({ error: 'No credentials' }); return }
+    const credentials = JSON.parse(Buffer.from(raw, 'base64').toString('utf-8'))
+    const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] })
+    const sheets = google.sheets({ version: 'v4', auth })
+    const sheetId = process.env.GOOGLE_SHEET_ID ?? '14DZ6Zp1UHg688FPTFdbJLCY6AXhgnAcnodV5KjVCAMs'
+
+    // Get all sheet tab names
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId, fields: 'sheets.properties.title' })
+    const tabNames = meta.data.sheets?.map(s => s.properties?.title) ?? []
+
+    // Sheet1 headers + sample row (Erik)
+    const s1 = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Sheet1' })
+    const s1Rows = s1.data.values ?? []
+    const s1Headers = s1Rows[0] ?? []
+    const erikRow = s1Rows.find(r => r[3]?.toLowerCase() === 'eschwaa@gmail.com')
+
+    // Directory headers + sample row
+    const dir = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'PublicMemberDirectoryMVP' })
+    const dirRows = dir.data.values ?? []
+    const dirHeaders = dirRows[0] ?? []
+    const dirSample = dirRows.length > 1 ? dirRows[1] : []
+
+    res.json({ tabNames, sheet1: { headers: s1Headers, sampleRow: erikRow, rowCount: s1Rows.length - 1 }, directory: { headers: dirHeaders, sampleRow: dirSample, rowCount: dirRows.length - 1 } })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
 // API routes
 app.use('/api/auth', authRouter)
 app.use('/api/members', membersRouter)
