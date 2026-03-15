@@ -1,16 +1,15 @@
 import { motion } from "framer-motion";
-import { Linkedin } from "lucide-react";
 
 const founders = [
+  { name: "Erik Schwartz", linkedin: "https://www.linkedin.com/in/eschwaa/", photo: "/founders/erik-schwartz.jpeg" },
+  { name: "Glynn Williams", linkedin: "https://www.linkedin.com/in/glynn-williams-1194983/", photo: "/founders/glynn-williams.jpeg" },
+  { name: "Gokul Raju", linkedin: "https://www.linkedin.com/in/gokulraju/", photo: "/founders/gokul-raju.png" },
+  { name: "Gregor Young", linkedin: "https://www.linkedin.com/in/gregoryoung/", photo: "/founders/gregor-young.jpeg" },
+  { name: "James Engelbert", linkedin: "https://www.linkedin.com/in/jamesengelbert/", photo: "/founders/james-engelbert.jpeg" },
+  { name: "Jessie Rushton", linkedin: "https://www.linkedin.com/in/jessierushton/", photo: "/founders/jessie-rushton.jpeg" },
   { name: "Sarah Baker-White", linkedin: "https://www.linkedin.com/in/sarahbaker/", photo: "/founders/sarah-baker-white.jpeg" },
   { name: "Scott Weiss", linkedin: "https://www.linkedin.com/in/scottweiss/", photo: "/founders/scott-weiss.jpeg" },
-  { name: "Jessie Rushton", linkedin: "https://www.linkedin.com/in/jessierushton/", photo: "/founders/jessie-rushton.jpeg" },
-  { name: "Gregor Young", linkedin: "https://www.linkedin.com/in/gregoryoung/", photo: "/founders/gregor-young.jpeg" },
-  { name: "Erik Schwartz", linkedin: "https://www.linkedin.com/in/eschwaa/", photo: "/founders/erik-schwartz.jpeg" },
-  { name: "Gokul Raju", linkedin: "https://www.linkedin.com/in/gokulraju/", photo: "/founders/gokul-raju.png" },
-  { name: "Glynn Williams", linkedin: "https://www.linkedin.com/in/glynn-williams-1194983/", photo: "/founders/glynn-williams.jpeg" },
   { name: "Shiv Khuti", linkedin: "https://www.linkedin.com/in/shivkhuti/", photo: "/founders/shiv-khuti.jpeg" },
-  { name: "James Engelbert", linkedin: "https://www.linkedin.com/in/jamesengelbert/", photo: "/founders/james-engelbert.jpeg" },
 ];
 
 const FoundersSection = () => {
@@ -49,7 +48,6 @@ const FoundersSection = () => {
                 className="w-20 h-20 rounded-full object-cover border-2 border-border mb-3"
               />
               <h3 className="font-semibold text-sm">{f.name}</h3>
-              <Linkedin className="h-4 w-4 text-muted-foreground mt-2 group-hover:text-primary transition-colors" />
             </motion.a>
           ))}
         </div>
