@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: cpo-connect-hub
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: tsx server.ts
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: truth-tone
+          property: connectionString
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: noreply@theaiexpert.ai
+      - key: GOOGLE_SHEETS_CREDENTIALS
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        value: 14DZ6Zp1UHg688FPTFdbJLCY6AXhgnAcnodV5KjVCAMs
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: MAGIC_LINK_BASE_URL
+        sync: false
+
+databases:
+  - name: truth-tone
+    databaseName: truth_tone
+    user: agency
+    region: frankfurt
+    plan: starter
+    preexisting: true
+    ipAllowList: []
