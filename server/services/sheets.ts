@@ -78,6 +78,12 @@ export interface MemberRecord {
   name: string
   status: string
   jobRole: string
+  linkedinUrl: string
+  location: string
+  currentOrg: string
+  industry: string
+  focusAreas: string
+  areasOfInterest: string
 }
 
 const sheet1Cache = makeCache<Sheet1Cache>()
@@ -114,6 +120,12 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
   const nameCol = colIndex(headers, 'Full Name')
   const statusCol = colIndex(headers, 'Status')
   const jobRoleCol = colIndex(headers, 'Job Role')
+  const linkedinCol = colIndex(headers, 'LinkedIn Profile')
+  const locationCol = colIndex(headers, 'Location')
+  const currentOrgCol = colIndex(headers, 'Current or most recent employer')
+  const industryCol = colIndex(headers, 'Industry')
+  const focusAreasCol = colIndex(headers, 'Primary Product Focus Areas')
+  const areasOfInterestCol = colIndex(headers, 'Areas of Interest')
 
   if (emailCol === -1) {
     console.error('[sheets] No "Email" column found in headers:', headers)
@@ -125,11 +137,17 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
   for (const row of rows) {
     const rowEmail = (row[emailCol] ?? '').trim().toLowerCase()
     if (rowEmail === normalised) {
-      const result = {
+      const result: MemberRecord = {
         email: row[emailCol] ?? '',
         name: nameCol !== -1 ? (row[nameCol] ?? '') : '',
         status: statusCol !== -1 ? (row[statusCol] ?? '') : '',
         jobRole: jobRoleCol !== -1 ? (row[jobRoleCol] ?? '') : '',
+        linkedinUrl: linkedinCol !== -1 ? (row[linkedinCol] ?? '') : '',
+        location: locationCol !== -1 ? (row[locationCol] ?? '') : '',
+        currentOrg: currentOrgCol !== -1 ? (row[currentOrgCol] ?? '') : '',
+        industry: industryCol !== -1 ? (row[industryCol] ?? '') : '',
+        focusAreas: focusAreasCol !== -1 ? (row[focusAreasCol] ?? '') : '',
+        areasOfInterest: areasOfInterestCol !== -1 ? (row[areasOfInterestCol] ?? '') : '',
       }
       return result
     }
