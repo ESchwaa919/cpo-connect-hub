@@ -26,6 +26,7 @@ const publicLinks = [
 const memberLinks = [
   { label: "Chat Insights", to: "/members/chat-insights" },
   { label: "Directory", to: "/members/directory" },
+  { label: "Profile", to: "/members/profile" },
 ]
 
 function getInitials(name: string): string {

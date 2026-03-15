@@ -25,6 +25,8 @@ interface Member {
   location?: string
   focusAreas?: string[]
   areasOfInterest?: string[]
+  bio?: string
+  skills?: string[]
 }
 
 function normalizeMember(m: RawMember): Member {
@@ -41,11 +43,15 @@ function normalizeMember(m: RawMember): Member {
     areasOfInterest: m["Areas of Interest"]
       ? m["Areas of Interest"].split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
+    bio: m["Bio"] || undefined,
+    skills: m["Skills"]
+      ? m["Skills"].split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined,
   }
 }
 
 async function fetchDirectory(): Promise<RawMember[]> {
-  const res = await fetch("/api/members/directory")
+  const res = await fetch("/api/members/directory", { credentials: "include" })
   if (!res.ok) throw new Error(`Failed to fetch directory: ${res.statusText}`)
   const data = await res.json()
   return data.members ?? data
@@ -95,7 +101,11 @@ export default function Directory() {
         m.role.toLowerCase().includes(q) ||
         (m.currentOrg?.toLowerCase().includes(q) ?? false) ||
         (m.sector?.toLowerCase().includes(q) ?? false) ||
-        (m.location?.toLowerCase().includes(q) ?? false)
+        (m.location?.toLowerCase().includes(q) ?? false) ||
+        (m.bio?.toLowerCase().includes(q) ?? false) ||
+        (m.skills?.some((s) => s.toLowerCase().includes(q)) ?? false) ||
+        (m.focusAreas?.some((a) => a.toLowerCase().includes(q)) ?? false) ||
+        (m.areasOfInterest?.some((a) => a.toLowerCase().includes(q)) ?? false)
       const matchesRole = roleFilter === "all" || m.role === roleFilter
       return matchesSearch && matchesRole
     })
@@ -109,7 +119,7 @@ export default function Directory() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Search by name, role, organisation, or sector…"
+            placeholder="Search by name, role, organisation, sector, skills…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
