@@ -110,12 +110,20 @@ function colIndex(headers: string[], name: string): number {
 export async function lookupMember(email: string): Promise<MemberRecord | null> {
   const { headers, rows } = await fetchSheet1()
 
+  // Debug: log headers and row count on first lookup
+  console.log('[sheets] lookupMember called for:', email)
+  console.log('[sheets] Sheet1 headers:', JSON.stringify(headers))
+  console.log('[sheets] Sheet1 row count:', rows.length)
+
   const emailCol = colIndex(headers, 'Email')
   const nameCol = colIndex(headers, 'Full Name')
   const statusCol = colIndex(headers, 'Status')
   const jobRoleCol = colIndex(headers, 'Job Title')
 
+  console.log('[sheets] Column indices — email:', emailCol, 'name:', nameCol, 'status:', statusCol, 'jobRole:', jobRoleCol)
+
   if (emailCol === -1) {
+    console.error('[sheets] ERROR: No "Email" column found in headers:', headers)
     throw new Error('Sheet1 is missing an "Email" column')
   }
 
@@ -124,15 +132,18 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
   for (const row of rows) {
     const rowEmail = (row[emailCol] ?? '').trim().toLowerCase()
     if (rowEmail === normalised) {
-      return {
+      const result = {
         email: row[emailCol] ?? '',
         name: nameCol !== -1 ? (row[nameCol] ?? '') : '',
         status: statusCol !== -1 ? (row[statusCol] ?? '') : '',
         jobRole: jobRoleCol !== -1 ? (row[jobRoleCol] ?? '') : '',
       }
+      console.log('[sheets] Found member:', JSON.stringify(result))
+      return result
     }
   }
 
+  console.log('[sheets] No match found for:', normalised)
   return null
 }
 
