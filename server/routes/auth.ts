@@ -148,6 +148,37 @@ router.get('/verify', async (req, res) => {
     const sessionId = (sessionResult.rows[0] as { id: string }).id
     console.log('[verify] Session created — id:', sessionId, 'name:', memberName)
 
+    // Sync member profile on first login
+    try {
+      const profileExists = await pool.query(
+        'SELECT email FROM cpo_connect.member_profiles WHERE email = $1',
+        [tokenRow.email]
+      )
+
+      if (profileExists.rows.length === 0 && member) {
+        await pool.query(
+          `INSERT INTO cpo_connect.member_profiles
+           (email, name, role, current_org, sector, location, focus_areas, areas_of_interest, linkedin_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            tokenRow.email,
+            member.name,
+            member.jobRole,
+            member.currentOrg,
+            member.industry,
+            member.location,
+            member.focusAreas,
+            member.areasOfInterest,
+            member.linkedinUrl,
+          ]
+        )
+        console.log('[verify] Profile created for:', tokenRow.email)
+      }
+    } catch (profileErr) {
+      // Don't fail the login if profile sync fails
+      console.error('[verify] Profile sync error:', (profileErr as Error).message)
+    }
+
     // Sign the session ID and set cookie
     const secret = process.env.SESSION_SECRET
     if (!secret) {

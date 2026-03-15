@@ -20,7 +20,13 @@ const pool = new pg.Pool({
 export default pool
 
 export async function runMigrations(): Promise<void> {
-  const migrationPath = path.join(__dirname, 'migrations', '001-init.sql')
-  const sql = fs.readFileSync(migrationPath, 'utf-8')
-  await pool.query(sql)
+  const migrationsDir = path.join(__dirname, 'migrations')
+  const files = fs.readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8')
+    await pool.query(sql)
+  }
 }
