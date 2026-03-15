@@ -104,16 +104,17 @@ router.get('/verify', async (req, res) => {
   }
 
   try {
-    // Look up valid token
+    // Look up valid token — allow reuse within expiry window to handle
+    // email link scanners (Gmail Safe Browsing) that pre-fetch links
     const tokenResult = await pool.query(
-      'SELECT id, email FROM cpo_connect.magic_link_tokens WHERE token = $1 AND used = FALSE AND expires_at > NOW()',
+      'SELECT id, email FROM cpo_connect.magic_link_tokens WHERE token = $1 AND expires_at > NOW()',
       [token]
     )
 
     console.log('[verify] Token lookup — rows found:', tokenResult.rows.length)
 
     if (tokenResult.rows.length === 0) {
-      console.log('[verify] Token not found/expired/used, redirecting to /?verify=expired')
+      console.log('[verify] Token not found or expired, redirecting to /?verify=expired')
       res.redirect(302, '/?verify=expired')
       return
     }
@@ -121,7 +122,7 @@ router.get('/verify', async (req, res) => {
     const tokenRow = tokenResult.rows[0] as { id: string; email: string }
     console.log('[verify] Token valid for email:', tokenRow.email)
 
-    // Mark token as used
+    // Mark token as used (idempotent — may already be used by a link scanner)
     await pool.query('UPDATE cpo_connect.magic_link_tokens SET used = TRUE WHERE id = $1', [tokenRow.id])
 
     // Look up member name
