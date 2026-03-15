@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils"
 interface MemberCardProps {
   name: string
   role: string
+  currentOrg?: string
+  sector?: string
   focusAreas?: string[]
   linkedIn?: string
 }
@@ -20,7 +22,7 @@ function getInitials(name: string): string {
     .slice(0, 2)
 }
 
-export function MemberCard({ name, role, focusAreas, linkedIn }: MemberCardProps) {
+export function MemberCard({ name, role, currentOrg, sector, focusAreas, linkedIn }: MemberCardProps) {
   return (
     <Card
       className={cn(
@@ -52,6 +54,13 @@ export function MemberCard({ name, role, focusAreas, linkedIn }: MemberCardProps
           </div>
 
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{role}</p>
+
+          {currentOrg && (
+            <p className="text-xs text-muted-foreground truncate">{currentOrg}</p>
+          )}
+          {sector && (
+            <Badge variant="outline" className="text-xs mt-1">{sector}</Badge>
+          )}
 
           {focusAreas && focusAreas.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
