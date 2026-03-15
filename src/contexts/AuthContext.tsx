@@ -6,12 +6,17 @@ interface User {
   jobRole: string
 }
 
+interface LoginResult {
+  code: string
+  memberStatus: 'sent' | 'not_found'
+}
+
 interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
   hasChecked: boolean
-  login: (email: string) => Promise<void>
+  login: (email: string) => Promise<LoginResult>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
 }
@@ -50,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [checkAuth, hasChecked])
 
-  const login = useCallback(async (email: string) => {
+  const login = useCallback(async (email: string): Promise<LoginResult> => {
     const res = await fetch("/api/auth/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -66,6 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.error || "Something went wrong")
     }
+
+    return res.json()
   }, [])
 
   const logout = useCallback(async () => {

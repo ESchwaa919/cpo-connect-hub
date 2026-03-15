@@ -58,17 +58,17 @@ export function LoginModal({
 
     setIsSubmitting(true)
     try {
-      await login(email.trim())
-      setState("sent")
+      const result = await login(email.trim())
+      if (result.memberStatus === "not_found") {
+        setState("not-member")
+      } else {
+        setState("sent")
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong"
-      if (message.toLowerCase().includes("not found") || message.toLowerCase().includes("not recognised") || message.toLowerCase().includes("not a member")) {
-        setState("not-member")
-      } else {
-        setErrorMessage(message)
-        setState("error")
-      }
+      setErrorMessage(message)
+      setState("error")
     } finally {
       setIsSubmitting(false)
     }
