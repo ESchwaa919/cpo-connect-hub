@@ -28,8 +28,8 @@ app.use('/api/members', membersRouter)
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, 'dist')))
 
-// SPA catch-all
-app.get('*', (_req, res) => {
+// SPA catch-all (Express 5 requires named wildcard parameter)
+app.get('/{*splat}', (_req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'))
 })
 
