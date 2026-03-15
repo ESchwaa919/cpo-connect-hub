@@ -2,15 +2,15 @@ import { motion } from "framer-motion";
 import { Linkedin } from "lucide-react";
 
 const founders = [
-  { name: "Sarah Baker-White", linkedin: "https://www.linkedin.com/in/sarahbaker/" },
-  { name: "Scott Weiss", linkedin: "https://www.linkedin.com/in/scottweiss/" },
-  { name: "Jessie Rushton", linkedin: "https://www.linkedin.com/in/jessierushton/" },
-  { name: "Gregor Young", linkedin: "https://www.linkedin.com/in/gregoryoung/" },
-  { name: "Erik Schwartz", linkedin: "https://www.linkedin.com/in/eschwaa/" },
-  { name: "Gokul Raju", linkedin: "https://www.linkedin.com/in/gokulraju/" },
-  { name: "Glynn Williams", linkedin: "https://www.linkedin.com/in/glynn-williams-1194983/" },
-  { name: "Shiv Khuti", linkedin: "https://www.linkedin.com/in/shivkhuti/" },
-  { name: "James Engelbert", linkedin: "https://www.linkedin.com/in/jamesengelbert/" },
+  { name: "Sarah Baker-White", linkedin: "https://www.linkedin.com/in/sarahbaker/", photo: "/founders/sarah-baker-white.jpeg" },
+  { name: "Scott Weiss", linkedin: "https://www.linkedin.com/in/scottweiss/", photo: "/founders/scott-weiss.jpeg" },
+  { name: "Jessie Rushton", linkedin: "https://www.linkedin.com/in/jessierushton/", photo: "/founders/jessie-rushton.jpeg" },
+  { name: "Gregor Young", linkedin: "https://www.linkedin.com/in/gregoryoung/", photo: "/founders/gregor-young.jpeg" },
+  { name: "Erik Schwartz", linkedin: "https://www.linkedin.com/in/eschwaa/", photo: "/founders/erik-schwartz.jpeg" },
+  { name: "Gokul Raju", linkedin: "https://www.linkedin.com/in/gokulraju/", photo: "/founders/gokul-raju.png" },
+  { name: "Glynn Williams", linkedin: "https://www.linkedin.com/in/glynn-williams-1194983/", photo: "/founders/glynn-williams.jpeg" },
+  { name: "Shiv Khuti", linkedin: "https://www.linkedin.com/in/shivkhuti/", photo: "/founders/shiv-khuti.jpeg" },
+  { name: "James Engelbert", linkedin: "https://www.linkedin.com/in/jamesengelbert/", photo: "/founders/james-engelbert.jpeg" },
 ];
 
 const FoundersSection = () => {
@@ -43,12 +43,11 @@ const FoundersSection = () => {
               viewport={{ once: true }}
               transition={{ delay: i * 0.05 }}
             >
-              {/* WhatsApp-style founders avatar */}
-              <div className="w-16 h-16 rounded-full border-[3px] border-foreground/70 bg-card flex flex-col items-center justify-center mb-3">
-                <span className="font-display text-[11px] font-bold leading-tight text-foreground">CPO</span>
-                <span className="font-display text-[8px] font-semibold leading-tight text-foreground">Connect</span>
-                <span className="font-display text-[6px] font-bold uppercase tracking-wider text-foreground/70 mt-0.5">FOUNDERS</span>
-              </div>
+              <img
+                src={f.photo}
+                alt={f.name}
+                className="w-20 h-20 rounded-full object-cover border-2 border-border mb-3"
+              />
               <h3 className="font-semibold text-sm">{f.name}</h3>
               <Linkedin className="h-4 w-4 text-muted-foreground mt-2 group-hover:text-primary transition-colors" />
             </motion.a>
