@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
 
 interface User {
   name: string
@@ -35,7 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch("/api/auth/me", { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
-        setUser(data.user)
+        // /api/auth/me returns { name, email, jobRole } directly (not nested under .user)
+        setUser(data)
       } else {
         setUser(null)
       }
@@ -47,13 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Only check auth if a session cookie exists (avoid 401 noise on public pages)
-  useEffect(() => {
-    const hasCookie = document.cookie.includes("cpo_session")
-    if (hasCookie && !hasChecked) {
-      checkAuth()
-    }
-  }, [checkAuth, hasChecked])
+  // Don't auto-check on mount — the cookie is httpOnly so JS can't detect it.
+  // ProtectedRoute triggers checkAuth() on demand when navigating to /members/*.
+  // This avoids 401 console errors on the public landing page.
 
   const login = useCallback(async (email: string): Promise<LoginResult> => {
     const res = await fetch("/api/auth/request", {

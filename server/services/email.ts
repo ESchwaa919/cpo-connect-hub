@@ -12,7 +12,9 @@ interface SendMagicLinkOptions {
 
 export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions): Promise<void> {
   const firstName = name.split(' ')[0]
+  const baseUrl = process.env.MAGIC_LINK_BASE_URL?.replace('/api/auth/verify', '') || 'https://cpo-connect-hub.onrender.com'
   const link = `${process.env.MAGIC_LINK_BASE_URL}?token=${token}`
+  const logoUrl = `${baseUrl}/apple-touch-icon.png`
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -104,6 +106,7 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
   <div class="wrapper">
     <div class="container">
       <div class="header">
+        <img src="${logoUrl}" alt="CPO Connect" width="48" height="48" style="display:block;margin:0 auto 12px;border-radius:10px;" />
         <h1>CPO Connect</h1>
       </div>
       <div class="body">
@@ -119,6 +122,8 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
         </p>
       </div>
       <div class="footer">
+        <strong>CPO Connect</strong> — The peer network for senior product leaders<br />
+        Free forever. No paywalls. No upsells.<br /><br />
         If you didn't request this email, you can safely ignore it.
       </div>
     </div>
