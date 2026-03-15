@@ -95,8 +95,10 @@ router.post('/request', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/verify', async (req, res) => {
   const token = req.query.token as string | undefined
+  console.log('[verify] Entry — token present:', !!token, 'url:', req.originalUrl)
 
   if (!token) {
+    console.log('[verify] No token in query params, redirecting to /?verify=expired')
     res.redirect(302, '/?verify=expired')
     return
   }
@@ -108,12 +110,16 @@ router.get('/verify', async (req, res) => {
       [token]
     )
 
+    console.log('[verify] Token lookup — rows found:', tokenResult.rows.length)
+
     if (tokenResult.rows.length === 0) {
+      console.log('[verify] Token not found/expired/used, redirecting to /?verify=expired')
       res.redirect(302, '/?verify=expired')
       return
     }
 
     const tokenRow = tokenResult.rows[0] as { id: string; email: string }
+    console.log('[verify] Token valid for email:', tokenRow.email)
 
     // Mark token as used
     await pool.query('UPDATE cpo_connect.magic_link_tokens SET used = TRUE WHERE id = $1', [tokenRow.id])
@@ -128,17 +134,19 @@ router.get('/verify', async (req, res) => {
       [tokenRow.email, memberName]
     )
     const sessionId = (sessionResult.rows[0] as { id: string }).id
+    console.log('[verify] Session created — id:', sessionId, 'name:', memberName)
 
     // Sign the session ID and set cookie
     const secret = process.env.SESSION_SECRET
     if (!secret) {
-      console.error('GET /verify: SESSION_SECRET is not set')
+      console.error('[verify] SESSION_SECRET is not set!')
       res.redirect(302, '/?verify=expired')
       return
     }
 
     const signedValue = 's:' + sign(sessionId, secret)
     const isProduction = process.env.NODE_ENV === 'production'
+    console.log('[verify] Setting cookie — secure:', isProduction, 'sameSite: lax, path: /')
 
     res.cookie('cpo_session', signedValue, {
       httpOnly: true,
@@ -148,9 +156,10 @@ router.get('/verify', async (req, res) => {
       path: '/',
     })
 
+    console.log('[verify] Redirecting to /members')
     res.redirect(302, '/members')
   } catch (err) {
-    console.error('GET /verify error:', (err as Error).message)
+    console.error('[verify] Error:', (err as Error).message)
     res.redirect(302, '/?verify=expired')
   }
 })

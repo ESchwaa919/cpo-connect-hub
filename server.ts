@@ -44,6 +44,9 @@ async function start() {
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
+    console.log(`MAGIC_LINK_BASE_URL = ${process.env.MAGIC_LINK_BASE_URL}`)
+    console.log(`SESSION_SECRET set = ${!!process.env.SESSION_SECRET}`)
+    console.log(`NODE_ENV = ${process.env.NODE_ENV}`)
   })
 }
 
