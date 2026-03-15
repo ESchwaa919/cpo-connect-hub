@@ -3,6 +3,8 @@ import cookieParser from 'cookie-parser'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { runMigrations } from './server/db.ts'
+import authRouter from './server/routes/auth.ts'
+import membersRouter from './server/routes/members.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -19,9 +21,9 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-// API route mounts (added in later tasks)
-// app.use('/api/auth', authRouter)
-// app.use('/api/members', membersRouter)
+// API routes
+app.use('/api/auth', authRouter)
+app.use('/api/members', membersRouter)
 
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, 'dist')))
