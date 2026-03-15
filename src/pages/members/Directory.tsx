@@ -20,35 +20,29 @@ interface Member {
   name: string
   role: string
   linkedIn?: string
-  currentOrg?: string
-  sector?: string
-  location?: string
   focusAreas?: string[]
-  areasOfInterest?: string[]
+  industry?: string
 }
 
 function normalizeMember(m: RawMember): Member {
-  return {
-    name: m["Name"] || "",
-    role: m["Role"] || "",
-    linkedIn: m["LinkedIn"] || undefined,
-    currentOrg: m["Current Org"] || undefined,
-    sector: m["Sector"] || undefined,
-    location: m["Location"] || undefined,
-    focusAreas: m["Primary Product Focus Areas"]
-      ? m["Primary Product Focus Areas"].split(",").map((s) => s.trim()).filter(Boolean)
-      : undefined,
-    areasOfInterest: m["Areas of Interest"]
-      ? m["Areas of Interest"].split(",").map((s) => s.trim()).filter(Boolean)
-      : undefined,
-  }
+  const name = m["Full Name"] || m["Name"] || ""
+  const role = m["Role"] || m["Job Title"] || ""
+  const linkedIn = m["LinkedIn"] || undefined
+  const focusAreasRaw = m["Focus Areas"] || ""
+  const focusAreas = focusAreasRaw
+    ? focusAreasRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined
+  const industry = m["Industry"] || undefined
+
+  return { name, role, linkedIn, focusAreas, industry }
 }
 
 async function fetchDirectory(): Promise<RawMember[]> {
   const res = await fetch("/api/members/directory")
-  if (!res.ok) throw new Error(`Failed to fetch directory: ${res.statusText}`)
-  const data = await res.json()
-  return data.members ?? data
+  if (!res.ok) {
+    throw new Error(`Failed to fetch directory: ${res.statusText}`)
+  }
+  return res.json()
 }
 
 function SkeletonCard() {
@@ -93,9 +87,7 @@ export default function Directory() {
         !q ||
         m.name.toLowerCase().includes(q) ||
         m.role.toLowerCase().includes(q) ||
-        (m.currentOrg?.toLowerCase().includes(q) ?? false) ||
-        (m.sector?.toLowerCase().includes(q) ?? false) ||
-        (m.location?.toLowerCase().includes(q) ?? false)
+        (m.industry?.toLowerCase().includes(q) ?? false)
       const matchesRole = roleFilter === "all" || m.role === roleFilter
       return matchesSearch && matchesRole
     })
@@ -109,7 +101,7 @@ export default function Directory() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Search by name, role, organisation, or sector…"
+            placeholder="Search by name, role, or industry…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -162,8 +154,6 @@ export default function Directory() {
                   key={`${member.name}-${i}`}
                   name={member.name}
                   role={member.role}
-                  currentOrg={member.currentOrg}
-                  sector={member.sector}
                   focusAreas={member.focusAreas}
                   linkedIn={member.linkedIn}
                 />
