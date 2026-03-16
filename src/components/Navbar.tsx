@@ -40,7 +40,7 @@ function getInitials(name: string): string {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, logout } = useAuth()
+  const { user, isAuthenticated, isLoading, hasChecked, logout } = useAuth()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -125,7 +125,7 @@ export function Navbar() {
                   {link.label}
                 </Link>
               ))}
-            {!isAuthenticated && (
+            {hasChecked && !isAuthenticated && (
               <>
                 <Button
                   variant="ghost"
@@ -145,12 +145,12 @@ export function Navbar() {
                 </Button>
               </>
             )}
-            {isAuthenticated && isLandingPage && (
+            {hasChecked && isAuthenticated && isLandingPage && (
               <Button size="sm" asChild>
                 <Link to="/members/chat-insights">Members Area</Link>
               </Button>
             )}
-            {isAuthenticated && isMembersPage && user && (
+            {hasChecked && isAuthenticated && isMembersPage && user && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -232,7 +232,7 @@ export function Navbar() {
                   </Link>
                 ))}
               <div className="flex flex-col space-y-2 pt-3 border-t">
-                {!isAuthenticated && (
+                {hasChecked && !isAuthenticated && (
                   <>
                     <Button
                       variant="ghost"
@@ -255,7 +255,7 @@ export function Navbar() {
                     </Button>
                   </>
                 )}
-                {isAuthenticated && isLandingPage && (
+                {hasChecked && isAuthenticated && isLandingPage && (
                   <Button size="sm" asChild>
                     <Link
                       to="/members/chat-insights"
@@ -265,7 +265,7 @@ export function Navbar() {
                     </Link>
                   </Button>
                 )}
-                {isAuthenticated && isMembersPage && (
+                {hasChecked && isAuthenticated && isMembersPage && (
                   <Button
                     variant="ghost"
                     size="sm"

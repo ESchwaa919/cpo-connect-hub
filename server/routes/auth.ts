@@ -199,6 +199,15 @@ router.get('/verify', async (req, res) => {
       path: '/',
     })
 
+    // Session hint cookie — readable by JS so the frontend knows to auto-check
+    res.cookie('cpo_has_session', '1', {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    })
+
     console.log('[verify] Redirecting to /members')
     res.redirect(302, '/members')
   } catch (err) {
@@ -227,6 +236,7 @@ router.get('/me', requireAuth, async (req, res) => {
       // Membership revoked — delete session and return 403
       await pool.query('DELETE FROM cpo_connect.sessions WHERE id = $1', [req.user!.id])
       res.clearCookie('cpo_session', { path: '/' })
+      res.clearCookie('cpo_has_session', { path: '/' })
       res.status(403).json({ code: 'membership_revoked' })
       return
     }
@@ -249,6 +259,7 @@ router.post('/logout', requireAuth, async (req, res) => {
   try {
     await pool.query('DELETE FROM cpo_connect.sessions WHERE id = $1', [req.user!.id])
     res.clearCookie('cpo_session', { path: '/' })
+    res.clearCookie('cpo_has_session', { path: '/' })
     res.status(200).json({ code: 'logged_out' })
   } catch (err) {
     console.error('POST /logout error:', (err as Error).message)
