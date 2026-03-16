@@ -15,7 +15,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const stored = localStorage.getItem("cpo-theme")
       if (stored === "light" || stored === "dark") return stored
     }
-    return "dark" // default preserves current behaviour
+    return "light" // landing page designed for light mode
   })
 
   useEffect(() => {
