@@ -157,7 +157,7 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
 }
 
 // ---------------------------------------------------------------------------
-// PublicMemberDirectoryMVP helpers
+// Directory helpers — reads from Sheet1, filters Status=Joined
 // ---------------------------------------------------------------------------
 
 export type DirectoryEntry = Record<string, string>
@@ -169,29 +169,21 @@ export async function getDirectory(): Promise<DirectoryEntry[]> {
   if (cached) return cached
 
   try {
-    const sheets = getSheetsClient()
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: 'PublicMemberDirectoryMVP',
-    })
-
-    const values = (response.data.values ?? []) as SheetRow[]
-    if (values.length === 0) {
-      directoryCache.set([])
-      return []
-    }
-
-    const headers = values[0] ?? []
-    const rows = values.slice(1)
-
+    const { headers, rows } = await fetchSheet1()
     const trimmedHeaders = headers.map((h) => h.trim())
-    const entries: DirectoryEntry[] = rows.map((row) => {
+    const statusIdx = colIndex(headers, 'Status')
+
+    const entries: DirectoryEntry[] = []
+    for (const row of rows) {
+      const status = statusIdx !== -1 ? (row[statusIdx] ?? '').trim().toLowerCase() : ''
+      if (status !== 'joined') continue
+
       const entry: DirectoryEntry = {}
       trimmedHeaders.forEach((header, i) => {
         entry[header] = row[i] ?? ''
       })
-      return entry
-    })
+      entries.push(entry)
+    }
 
     directoryCache.set(entries)
     return entries

@@ -156,13 +156,13 @@ router.post('/profile/enrich', requireAuth, async (req, res) => {
   }
 })
 
-// DB column → Sheet header mapping for directory overlay
+// DB column → Sheet1 header mapping for directory overlay
 const DB_TO_SHEET: [string, string][] = [
   ['bio', 'Bio'],
   ['skills', 'Skills'],
-  ['role', 'Role'],
-  ['current_org', 'Current Org'],
-  ['sector', 'Sector'],
+  ['role', 'Job Role'],
+  ['current_org', 'Current or most recent employer'],
+  ['sector', 'Industry'],
   ['location', 'Location'],
 ]
 
@@ -173,9 +173,9 @@ router.get('/directory', requireAuth, async (_req, res) => {
   try {
     const members = await getDirectory()
 
-    // Collect emails — sheet column may be 'email' (lowercase) or 'Email'
+    // Sheet1 uses 'Email' column
     const emails = members
-      .map((m) => (m['email'] ?? m['Email'])?.trim())
+      .map((m) => m['Email']?.trim())
       .filter((e): e is string => !!e)
 
     // Batch-query enriched profiles from DB
@@ -193,7 +193,7 @@ router.get('/directory', requireAuth, async (_req, res) => {
     }
 
     const enriched = members.map((m) => {
-      const email = (m['email'] ?? m['Email'])?.trim()
+      const email = m['Email']?.trim()
       const result = { ...m }
 
       if (email) {

@@ -35,24 +35,30 @@ interface Member {
 }
 
 function normalizeMember(m: RawMember): Member {
+  // Sheet1 column names (primary source)
+  const name = m["Full Name"] || m["Name"] || ""
+  const rawFocusAreas = m["Primary Product Focus Areas"]
+  const rawInterests = m["Areas of Interest"]
+  const rawSkills = m["Skills"]
+
   return {
-    name: m["Name"] || "",
-    role: m["Role"] || "",
-    linkedIn: m["LinkedIn"] || undefined,
-    currentOrg: m["Current Org"] || undefined,
-    sector: m["Sector"] || undefined,
+    name,
+    role: m["Job Role"] || m["Role"] || "",
+    linkedIn: m["LinkedIn Profile"] || m["LinkedIn"] || undefined,
+    currentOrg: m["Current or most recent employer"] || m["Current Org"] || undefined,
+    sector: m["Industry"] || m["Sector"] || undefined,
     location: m["Location"] || undefined,
-    email: m["email"] || m["Email"] || undefined,
+    email: m["Email"] || undefined,
     phone: m["Phone number"] || m["Phone"] || undefined,
-    focusAreas: m["Primary Product Focus Areas"]
-      ? m["Primary Product Focus Areas"].split(",").map((s) => s.trim()).filter(Boolean)
+    focusAreas: rawFocusAreas
+      ? rawFocusAreas.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
-    areasOfInterest: m["Areas of Interest"]
-      ? m["Areas of Interest"].split(",").map((s) => s.trim()).filter(Boolean)
+    areasOfInterest: rawInterests
+      ? rawInterests.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
     bio: m["Bio"] || undefined,
-    skills: m["Skills"]
-      ? m["Skills"].split(",").map((s) => s.trim()).filter(Boolean)
+    skills: rawSkills
+      ? rawSkills.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
     gravatarUrl: m["gravatarUrl"] || undefined,
     photoUrl: m["photoUrl"] || undefined,
