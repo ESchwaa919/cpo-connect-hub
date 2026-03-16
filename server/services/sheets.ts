@@ -184,10 +184,6 @@ export async function getDirectory(): Promise<DirectoryEntry[]> {
     const headers = values[0] ?? []
     const rows = values.slice(1)
 
-    // DEBUG: log raw headers from sheet
-    console.log('[getDirectory] Raw headers:', JSON.stringify(headers))
-    console.log('[getDirectory] Row count:', rows.length, '| First row cols:', rows[0]?.length ?? 0)
-
     const trimmedHeaders = headers.map((h) => h.trim())
     const entries: DirectoryEntry[] = rows.map((row) => {
       const entry: DirectoryEntry = {}
