@@ -90,11 +90,18 @@ export function MemberCard({
             {currentOrg && <p className="text-xs text-muted-foreground truncate">{currentOrg}</p>}
             <div className="flex flex-wrap items-center gap-2 mt-1">
               {sector && <Badge variant="outline" className="text-xs">{sector}</Badge>}
-              {memberSince && (
-                <span className="text-xs text-muted-foreground">
-                  Member since {new Date(memberSince).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
-                </span>
-              )}
+              {memberSince && (() => {
+                // Sheet dates are DD/MM/YYYY — split and reconstruct for reliable parsing
+                const parts = memberSince.split('/')
+                const d = parts.length === 3
+                  ? new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]))
+                  : new Date(memberSince)
+                return !isNaN(d.getTime()) ? (
+                  <span className="text-xs text-muted-foreground">
+                    Member since {d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                  </span>
+                ) : null
+              })()}
             </div>
 
             {focusAreas && focusAreas.length > 0 && (
