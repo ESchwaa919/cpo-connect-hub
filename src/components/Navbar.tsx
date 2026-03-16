@@ -11,7 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, X, LogOut } from "lucide-react"
+import { Menu, X, LogOut, Sun, Moon } from "lucide-react"
+import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
 import logo from "@/assets/logo.png"
@@ -31,6 +32,7 @@ const memberLinks = [
 
 export function Navbar() {
   const { user, isAuthenticated, isLoading, hasChecked, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -115,6 +117,15 @@ export function Navbar() {
                   {link.label}
                 </Link>
               ))}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-8 w-8"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
             {hasChecked && !isAuthenticated && (
               <>
                 <Button
@@ -218,6 +229,15 @@ export function Navbar() {
                   </Link>
                 ))}
               <div className="flex flex-col space-y-2 pt-3 border-t">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleTheme}
+                  className="justify-start"
+                >
+                  {theme === "dark" ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </Button>
                 {hasChecked && !isAuthenticated && (
                   <>
                     <Button
