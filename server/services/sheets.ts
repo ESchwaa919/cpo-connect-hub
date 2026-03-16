@@ -184,9 +184,10 @@ export async function getDirectory(): Promise<DirectoryEntry[]> {
     const headers = values[0] ?? []
     const rows = values.slice(1)
 
+    const trimmedHeaders = headers.map((h) => h.trim())
     const entries: DirectoryEntry[] = rows.map((row) => {
       const entry: DirectoryEntry = {}
-      headers.forEach((header, i) => {
+      trimmedHeaders.forEach((header, i) => {
         entry[header] = row[i] ?? ''
       })
       return entry

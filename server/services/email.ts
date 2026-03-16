@@ -106,7 +106,7 @@ export async function sendMagicLink({ email, token, name }: SendMagicLinkOptions
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <img src="${logoUrl}" alt="CPO Connect" width="48" height="48" style="display:block;margin:0 auto 12px;border-radius:10px;" />
+        <img src="${logoUrl}" alt="CPO Connect" width="48" height="48" style="display:block;margin:0 auto 12px;border-radius:10px;background:#ffffff;padding:4px;" />
         <h1>CPO Connect</h1>
       </div>
       <div class="body">

@@ -241,6 +241,16 @@ router.get('/me', requireAuth, async (req, res) => {
       return
     }
 
+    // Back-fill hint cookie for sessions created before THE-276
+    const isProduction = process.env.NODE_ENV === 'production'
+    res.cookie('cpo_has_session', '1', {
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    })
+
     res.status(200).json({
       name: member.name,
       email: member.email,
