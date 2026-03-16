@@ -54,10 +54,7 @@ export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Pro
   let pageContent = ''
   let photoUrl = ''
 
-  // Try Playwright first (renders JS, bypasses login walls), fall back to direct fetch
-  try {
-    console.log('[enrichment] Fetching via Playwright:', linkedinUrl)
-    const html = await fetchViaPlaywright(linkedinUrl)
+  function processHtml(html: string) {
     photoUrl = extractOgImage(html)
     pageContent = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -66,23 +63,37 @@ export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Pro
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 8000)
-    console.log('[enrichment] Playwright success — content length:', pageContent.length, 'photoUrl:', photoUrl ? 'found' : 'none')
-  } catch (err) {
-    console.warn('[enrichment] Playwright failed, falling back to direct fetch:', (err as Error).message)
+  }
+
+  const isLinkedIn = linkedinUrl.includes('linkedin.com')
+
+  if (isLinkedIn) {
+    // LinkedIn serves profile meta tags (og:image, description) in the initial HTML
+    // response, before JS redirects to the auth wall. Direct fetch captures this;
+    // Playwright waits for JS and lands on the auth wall instead.
     try {
+      console.log('[enrichment] Direct fetch (LinkedIn):', linkedinUrl)
       const html = await fetchDirect(linkedinUrl)
-      if (html) {
-        photoUrl = extractOgImage(html)
-        pageContent = html
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 8000)
-      }
+      if (html) processHtml(html)
+      console.log('[enrichment] Direct fetch — content length:', pageContent.length, 'photoUrl:', photoUrl ? 'found' : 'none')
     } catch {
-      // Both methods failed — proceed with name-only context
+      // LinkedIn blocked — proceed with name-only context
+    }
+  } else {
+    // Non-LinkedIn: use Playwright for JS-rendered pages, fall back to direct fetch
+    try {
+      console.log('[enrichment] Fetching via Playwright:', linkedinUrl)
+      const html = await fetchViaPlaywright(linkedinUrl)
+      processHtml(html)
+      console.log('[enrichment] Playwright success — content length:', pageContent.length, 'photoUrl:', photoUrl ? 'found' : 'none')
+    } catch (err) {
+      console.warn('[enrichment] Playwright failed, falling back to direct fetch:', (err as Error).message)
+      try {
+        const html = await fetchDirect(linkedinUrl)
+        if (html) processHtml(html)
+      } catch {
+        // Both methods failed — proceed with name-only context
+      }
     }
   }
 
