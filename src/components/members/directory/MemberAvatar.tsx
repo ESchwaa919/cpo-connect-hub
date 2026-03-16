@@ -25,6 +25,8 @@ const FOUNDER_PHOTOS: Record<string, string> = {
 
 function normaliseForMatch(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase()
+    .replace(/\b\w\.\s?/g, '') // strip middle initials (e.g., "M.")
+    .replace(/\s+/g, ' ').trim()
 }
 
 function uiAvatarsUrl(name: string, size: number): string {
