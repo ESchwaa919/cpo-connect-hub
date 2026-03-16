@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -13,8 +13,8 @@
       // Prevent theme flash — runs before React
       (function() {
         var theme = localStorage.getItem('cpo-theme');
-        if (theme === 'light') {
-          document.documentElement.classList.remove('dark');
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
         }
       })();
     </script>
