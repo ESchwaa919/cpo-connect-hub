@@ -39,17 +39,21 @@ async function fetchViaPlaywright(url: string): Promise<string> {
 }
 
 async function fetchDirect(url: string): Promise<string> {
+  // Use redirect: 'manual' — LinkedIn serves profile meta tags (og:image,
+  // og:description) in the initial HTTP response, then redirects to an auth
+  // wall. Following the redirect loses the profile data.
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; CPOConnect/1.0)',
-      'Accept': 'text/html',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
     },
     signal: AbortSignal.timeout(10_000),
+    redirect: 'manual',
   })
-  // LinkedIn returns HTTP 999 (soft block) but the body still contains
-  // profile meta tags (og:image, og:description). Read body regardless of status.
+  // Read body regardless of status — LinkedIn returns HTTP 999 with profile HTML
   const text = await response.text()
-  return text.slice(0, 50_000)
+  return text.slice(0, 100_000)
 }
 
 export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Promise<EnrichmentResult> {
