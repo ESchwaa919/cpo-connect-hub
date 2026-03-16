@@ -5,6 +5,8 @@ const client = new Anthropic()
 interface EnrichmentResult {
   bio: string
   skills: string
+  role: string
+  currentOrg: string
 }
 
 export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Promise<EnrichmentResult> {
@@ -53,8 +55,12 @@ Based on the available information, provide:
 
 2. **skills**: Extract a comma-separated list of professional skills (max 10). Focus on product management, leadership, and technical skills. If limited information is available, return an empty string.
 
+3. **role**: Extract their current job title. If not clearly stated, return an empty string.
+
+4. **currentOrg**: Extract their current employer or organisation. If not clearly stated, return an empty string.
+
 Respond in JSON format only:
-{"bio": "...", "skills": "skill1, skill2, skill3"}`,
+{"bio": "...", "skills": "...", "role": "...", "currentOrg": "..."}`,
       },
     ],
   })
@@ -71,10 +77,12 @@ Respond in JSON format only:
     jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
   }
 
-  const parsed = JSON.parse(jsonStr) as { bio?: string; skills?: string }
+  const parsed = JSON.parse(jsonStr) as { bio?: string; skills?: string; role?: string; currentOrg?: string }
 
   return {
     bio: parsed.bio ?? '',
     skills: parsed.skills ?? '',
+    role: parsed.role ?? '',
+    currentOrg: parsed.currentOrg ?? '',
   }
 }

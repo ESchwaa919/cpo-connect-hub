@@ -114,14 +114,25 @@ router.post('/profile/enrich', requireAuth, async (req, res) => {
     // Enrich via LinkedIn + Claude
     const enrichment = await enrichFromLinkedIn(linkedin_url, name)
 
-    // Update profile with enrichment results
+    // Always write bio + skills; conditionally write role + current_org
+    const setClauses = ['bio = $2', 'skills = $3', "profile_enriched = TRUE", "enrichment_source = 'linkedin'", 'updated_at = NOW()']
+    const values: string[] = [email, enrichment.bio, enrichment.skills]
+    let paramIndex = 4
+
+    if (enrichment.role) {
+      setClauses.push(`role = $${paramIndex}`)
+      values.push(enrichment.role)
+      paramIndex++
+    }
+    if (enrichment.currentOrg) {
+      setClauses.push(`current_org = $${paramIndex}`)
+      values.push(enrichment.currentOrg)
+      paramIndex++
+    }
+
     const result = await pool.query(
-      `UPDATE cpo_connect.member_profiles
-       SET bio = $2, skills = $3, profile_enriched = TRUE,
-           enrichment_source = 'linkedin', updated_at = NOW()
-       WHERE email = $1
-       RETURNING ${PROFILE_COLUMNS}`,
-      [email, enrichment.bio, enrichment.skills]
+      `UPDATE cpo_connect.member_profiles SET ${setClauses.join(', ')} WHERE email = $1 RETURNING ${PROFILE_COLUMNS}`,
+      values
     )
     res.status(200).json(result.rows[0])
   } catch (err) {
