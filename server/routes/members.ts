@@ -24,7 +24,7 @@ const EDITABLE_FIELDS = [
 
 const PROFILE_COLUMNS = `email, name, role, current_org, sector, location,
   focus_areas, areas_of_interest, linkedin_url, bio,
-  skills, enrichment_source, profile_enriched`
+  skills, enrichment_source, profile_enriched, photo_url, enriched_at, updated_at`
 
 const PROFILE_SELECT = `SELECT ${PROFILE_COLUMNS} FROM cpo_connect.member_profiles WHERE email = $1`
 
@@ -120,20 +120,29 @@ router.post('/profile/enrich', requireAuth, async (req, res) => {
     // Enrich via LinkedIn + Claude
     const enrichment = await enrichFromLinkedIn(linkedin_url, name)
 
-    // Always write bio + skills; conditionally write role + current_org
-    const setClauses = ['bio = $2', 'skills = $3', "profile_enriched = TRUE", "enrichment_source = 'linkedin'", 'updated_at = NOW()']
+    // Always write bio + skills; conditionally write other fields if non-empty
+    const setClauses = [
+      'bio = $2', 'skills = $3',
+      "profile_enriched = TRUE", "enrichment_source = 'linkedin'",
+      'enriched_at = NOW()', 'updated_at = NOW()',
+    ]
     const values: string[] = [email, enrichment.bio, enrichment.skills]
     let paramIndex = 4
 
-    if (enrichment.role) {
-      setClauses.push(`role = $${paramIndex}`)
-      values.push(enrichment.role)
-      paramIndex++
-    }
-    if (enrichment.currentOrg) {
-      setClauses.push(`current_org = $${paramIndex}`)
-      values.push(enrichment.currentOrg)
-      paramIndex++
+    // Enrichment field → DB column mapping (only written if non-empty)
+    const ENRICHMENT_FIELD_MAP: [keyof typeof enrichment, string][] = [
+      ['role', 'role'],
+      ['currentOrg', 'current_org'],
+      ['location', 'location'],
+      ['industry', 'sector'],
+      ['photoUrl', 'photo_url'],
+    ]
+    for (const [field, column] of ENRICHMENT_FIELD_MAP) {
+      if (enrichment[field]) {
+        setClauses.push(`${column} = $${paramIndex}`)
+        values.push(enrichment[field])
+        paramIndex++
+      }
     }
 
     const result = await pool.query(
