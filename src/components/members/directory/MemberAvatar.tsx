@@ -5,6 +5,7 @@ import { cn, getInitials } from "@/lib/utils"
 interface MemberAvatarProps {
   name: string
   founderPhoto?: string
+  photoUrl?: string
   gravatarUrl?: string
   size?: number
   className?: string
@@ -34,18 +35,20 @@ export function getFounderPhoto(name: string): string | undefined {
   return FOUNDER_PHOTOS[normaliseForMatch(name)]
 }
 
-export function MemberAvatar({ name, founderPhoto, gravatarUrl, size = 40, className }: MemberAvatarProps) {
+export function MemberAvatar({ name, founderPhoto, photoUrl, gravatarUrl, size = 40, className }: MemberAvatarProps) {
   const resolvedFounderPhoto = founderPhoto ?? getFounderPhoto(name)
   const [imgSrc, setImgSrc] = useState<string | undefined>(
-    resolvedFounderPhoto ?? gravatarUrl ?? uiAvatarsUrl(name, size)
+    resolvedFounderPhoto ?? photoUrl ?? gravatarUrl ?? uiAvatarsUrl(name, size)
   )
 
   const sizeClass = size <= 32 ? "h-8 w-8" : size <= 48 ? "h-12 w-12" : "h-20 w-20"
 
   function handleError() {
-    if (imgSrc === resolvedFounderPhoto && gravatarUrl) {
+    if (imgSrc === resolvedFounderPhoto && photoUrl) {
+      setImgSrc(photoUrl)
+    } else if ((imgSrc === resolvedFounderPhoto || imgSrc === photoUrl) && gravatarUrl) {
       setImgSrc(gravatarUrl)
-    } else if (imgSrc === resolvedFounderPhoto || imgSrc === gravatarUrl) {
+    } else if (imgSrc !== uiAvatarsUrl(name, size)) {
       setImgSrc(uiAvatarsUrl(name, size))
     } else {
       setImgSrc(undefined) // fall through to initials

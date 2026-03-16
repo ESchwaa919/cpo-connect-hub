@@ -156,19 +156,62 @@ router.post('/profile/enrich', requireAuth, async (req, res) => {
   }
 })
 
+// DB column → Sheet header mapping for directory overlay
+const DB_TO_SHEET: [string, string][] = [
+  ['bio', 'Bio'],
+  ['skills', 'Skills'],
+  ['role', 'Role'],
+  ['current_org', 'Current Org'],
+  ['sector', 'Sector'],
+  ['location', 'Location'],
+]
+
 // ---------------------------------------------------------------------------
 // GET /directory — list members (requires auth)
 // ---------------------------------------------------------------------------
 router.get('/directory', requireAuth, async (_req, res) => {
   try {
     const members = await getDirectory()
+
+    // Collect emails for batch DB lookup
+    const emails = members
+      .map((m) => m['Email']?.trim())
+      .filter((e): e is string => !!e)
+
+    // Batch-query enriched profiles from DB
+    const profileMap = new Map<string, Record<string, string>>()
+    if (emails.length > 0) {
+      const profileResult = await pool.query(
+        `SELECT email, bio, skills, role, current_org, sector, location, photo_url
+         FROM cpo_connect.member_profiles
+         WHERE email = ANY($1) AND profile_enriched = TRUE`,
+        [emails]
+      )
+      for (const row of profileResult.rows) {
+        profileMap.set(row.email.toLowerCase(), row as Record<string, string>)
+      }
+    }
+
     const enriched = members.map((m) => {
       const email = m['Email']?.trim()
+      const result = { ...m }
+
       if (email) {
-        return { ...m, gravatarUrl: gravatarUrl(email) }
+        result.gravatarUrl = gravatarUrl(email)
+
+        // Overlay enriched DB fields on top of sheet data
+        const profile = profileMap.get(email.toLowerCase())
+        if (profile) {
+          for (const [dbCol, sheetKey] of DB_TO_SHEET) {
+            if (profile[dbCol]) result[sheetKey] = profile[dbCol]
+          }
+          if (profile.photo_url) result.photoUrl = profile.photo_url
+        }
       }
-      return m
+
+      return result
     })
+
     res.status(200).json({ members: enriched })
   } catch (err) {
     console.error('GET /directory error:', (err as Error).message)

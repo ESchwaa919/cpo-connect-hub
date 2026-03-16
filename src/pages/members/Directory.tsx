@@ -30,6 +30,7 @@ interface Member {
   bio?: string
   skills?: string[]
   gravatarUrl?: string
+  photoUrl?: string
 }
 
 function normalizeMember(m: RawMember): Member {
@@ -53,6 +54,7 @@ function normalizeMember(m: RawMember): Member {
       ? m["Skills"].split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
     gravatarUrl: m["gravatarUrl"] || undefined,
+    photoUrl: m["photoUrl"] || undefined,
   }
 }
 
@@ -204,6 +206,7 @@ export default function Directory() {
                     areasOfInterest={member.areasOfInterest}
                     location={member.location}
                     gravatarUrl={member.gravatarUrl}
+                    photoUrl={member.photoUrl}
                     expanded={expandedMemberId === memberId}
                     onToggle={() => setExpandedMemberId(expandedMemberId === memberId ? null : memberId)}
                   />
