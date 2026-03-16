@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Save, Loader2 } from "lucide-react"
+import { Save, Loader2, Linkedin, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 
 interface Profile {
@@ -23,7 +24,13 @@ interface Profile {
   skills: string
   enrichment_source: string
   profile_enriched: boolean
+  photo_url: string
+  enriched_at: string | null
+  updated_at: string | null
 }
+
+type EnrichedField = 'bio' | 'skills' | 'role' | 'current_org' | 'sector' | 'location'
+const ENRICHED_FIELDS = new Set<EnrichedField>(['bio', 'skills', 'role', 'current_org', 'sector', 'location'])
 
 async function fetchProfile(): Promise<Profile> {
   const res = await fetch("/api/members/profile", { credentials: "include" })
@@ -52,6 +59,32 @@ async function enrichProfile(): Promise<Profile> {
     throw new Error(data.error || "Enrichment failed")
   }
   return res.json()
+}
+
+function EnrichedBadge() {
+  return (
+    <Badge variant="outline" className="ml-2 text-xs font-normal gap-1 text-primary border-primary/30">
+      <Linkedin className="h-3 w-3" />
+      LinkedIn
+    </Badge>
+  )
+}
+
+function EnrichedLabel({ htmlFor, children, field, isEnriched }: {
+  htmlFor: string; children: string; field: EnrichedField; isEnriched: boolean
+}) {
+  return (
+    <div className="flex items-center">
+      <Label htmlFor={htmlFor}>{children}</Label>
+      {isEnriched && ENRICHED_FIELDS.has(field) && <EnrichedBadge />}
+    </div>
+  )
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function ProfileSkeleton() {
@@ -116,11 +149,14 @@ export default function Profile() {
     mutationFn: enrichProfile,
     onSuccess: (data) => {
       queryClient.setQueryData(["profile"], data)
-      // Update form with enriched bio/skills without discarding other unsaved edits
       setForm((prev) => ({
         ...prev,
         bio: data.bio ?? "",
         skills: data.skills,
+        role: data.role,
+        current_org: data.current_org,
+        sector: data.sector,
+        location: data.location,
       }))
       setDirty(false)
       toast.success("Profile enriched from LinkedIn")
@@ -148,34 +184,42 @@ export default function Profile() {
     )
   }
 
-  const showEnrichmentBanner =
-    profile && !profile.profile_enriched && profile.linkedin_url
+  const isEnriched = !!(profile?.profile_enriched && profile?.enrichment_source === 'linkedin')
+  const hasLinkedIn = !!profile?.linkedin_url
 
   return (
     <div>
       <h1 className="text-3xl font-bold font-display mb-6">Your Profile</h1>
 
-      {showEnrichmentBanner && (
+      {hasLinkedIn && (
         <Card className="mb-6 border-primary/30 bg-primary/5">
           <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <p className="font-medium text-sm">Enrich your profile from LinkedIn</p>
+              <p className="font-medium text-sm">
+                {isEnriched ? "Profile enriched from LinkedIn" : "Enrich your profile from LinkedIn"}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
-                We'll use AI to generate a professional bio and extract your skills from your LinkedIn profile.
+                {isEnriched && profile?.enriched_at
+                  ? `Last enriched: ${formatDate(profile.enriched_at)}. Sync again to update with latest LinkedIn data.`
+                  : "We'll use AI to extract your bio, skills, role, and more from your LinkedIn profile."}
               </p>
             </div>
             <Button
               size="sm"
+              variant={isEnriched ? "outline" : "default"}
               onClick={() => enrichMutation.mutate()}
               disabled={enrichMutation.isPending}
             >
               {enrichMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Enriching…
+                  Enriching...
                 </>
               ) : (
-                "Enrich Profile"
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {isEnriched ? "Sync again" : "Enrich Profile"}
+                </>
               )}
             </Button>
           </CardContent>
@@ -198,7 +242,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
+                <EnrichedLabel htmlFor="role" field="role" isEnriched={isEnriched}>Role</EnrichedLabel>
                 <Input
                   id="role"
                   value={form.role ?? ""}
@@ -206,7 +250,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="current_org">Organisation</Label>
+                <EnrichedLabel htmlFor="current_org" field="current_org" isEnriched={isEnriched}>Organisation</EnrichedLabel>
                 <Input
                   id="current_org"
                   value={form.current_org ?? ""}
@@ -214,7 +258,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sector">Sector</Label>
+                <EnrichedLabel htmlFor="sector" field="sector" isEnriched={isEnriched}>Sector</EnrichedLabel>
                 <Input
                   id="sector"
                   value={form.sector ?? ""}
@@ -222,7 +266,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
+                <EnrichedLabel htmlFor="location" field="location" isEnriched={isEnriched}>Location</EnrichedLabel>
                 <Input
                   id="location"
                   value={form.location ?? ""}
@@ -261,7 +305,7 @@ export default function Profile() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="skills">Skills</Label>
+              <EnrichedLabel htmlFor="skills" field="skills" isEnriched={isEnriched}>Skills</EnrichedLabel>
               <Input
                 id="skills"
                 value={form.skills ?? ""}
@@ -271,13 +315,13 @@ export default function Profile() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="bio">Bio</Label>
+              <EnrichedLabel htmlFor="bio" field="bio" isEnriched={isEnriched}>Bio</EnrichedLabel>
               <Textarea
                 id="bio"
                 rows={5}
                 value={form.bio ?? ""}
                 onChange={(e) => onChange("bio", e.target.value)}
-                placeholder="Tell the community about yourself…"
+                placeholder="Tell the community about yourself..."
               />
             </div>
           </CardContent>
@@ -288,7 +332,7 @@ export default function Profile() {
             {saveMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving…
+                Saving...
               </>
             ) : (
               <>

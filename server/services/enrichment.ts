@@ -2,16 +2,31 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic()
 
-interface EnrichmentResult {
+export interface EnrichmentResult {
   bio: string
   skills: string
   role: string
   currentOrg: string
+  location: string
+  industry: string
+  photoUrl: string
+}
+
+function extractOgImage(html: string): string {
+  // Extract og:image before stripping HTML tags
+  const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
+  if (!match?.[1]) return ''
+  const url = match[1]
+  // Skip LinkedIn default/placeholder images
+  if (url.includes('static.licdn.com/aero-v1') || url.includes('default-avatar')) return ''
+  return url
 }
 
 export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Promise<EnrichmentResult> {
   // Attempt to fetch the public LinkedIn page
   let pageContent = ''
+  let photoUrl = ''
   try {
     const response = await fetch(linkedinUrl, {
       headers: {
@@ -21,8 +36,10 @@ export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Pro
       signal: AbortSignal.timeout(10_000),
     })
     if (response.ok) {
-      // Cap raw HTML before regex processing to avoid processing megabytes
+      // Cap raw HTML before processing to avoid processing megabytes
       const html = (await response.text()).slice(0, 50_000)
+      // Extract og:image BEFORE stripping HTML
+      photoUrl = extractOgImage(html)
       pageContent = html
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -49,18 +66,22 @@ export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Pro
 
 ${contextBlock}
 
-Based on the available information, provide:
+Based on the available information, extract and provide:
 
 1. **bio**: Write an original, professional bio (2-4 sentences) in third person. Do NOT copy text verbatim from LinkedIn. Rewrite in your own words, focusing on their product leadership experience and expertise. If limited information is available, write a brief generic bio mentioning they are a CPO Connect community member.
 
 2. **skills**: Extract a comma-separated list of professional skills (max 10). Focus on product management, leadership, and technical skills. If limited information is available, return an empty string.
 
-3. **role**: Extract their current job title. If not clearly stated, return an empty string.
+3. **role**: Extract their current job title (e.g. "Chief Product Officer", "VP Product"). If not clearly stated, return an empty string.
 
 4. **currentOrg**: Extract their current employer or organisation. If not clearly stated, return an empty string.
 
+5. **location**: Extract their location (city, country). If not clearly stated, return an empty string.
+
+6. **industry**: Extract their industry or sector (e.g. "FinTech", "SaaS", "Healthcare"). If not clearly stated, return an empty string.
+
 Respond in JSON format only:
-{"bio": "...", "skills": "...", "role": "...", "currentOrg": "..."}`,
+{"bio": "...", "skills": "...", "role": "...", "currentOrg": "...", "location": "...", "industry": "..."}`,
       },
     ],
   })
@@ -77,12 +98,18 @@ Respond in JSON format only:
     jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
   }
 
-  const parsed = JSON.parse(jsonStr) as { bio?: string; skills?: string; role?: string; currentOrg?: string }
+  const parsed = JSON.parse(jsonStr) as {
+    bio?: string; skills?: string; role?: string; currentOrg?: string
+    location?: string; industry?: string
+  }
 
   return {
     bio: parsed.bio ?? '',
     skills: parsed.skills ?? '',
     role: parsed.role ?? '',
     currentOrg: parsed.currentOrg ?? '',
+    location: parsed.location ?? '',
+    industry: parsed.industry ?? '',
+    photoUrl,
   }
 }
