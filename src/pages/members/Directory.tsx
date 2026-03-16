@@ -41,8 +41,8 @@ function normalizeMember(m: RawMember): Member {
     currentOrg: m["Current Org"] || undefined,
     sector: m["Sector"] || undefined,
     location: m["Location"] || undefined,
-    email: m["Email"] || undefined,
-    phone: m["Phone"] || undefined,
+    email: m["email"] || m["Email"] || undefined,
+    phone: m["Phone number"] || m["Phone"] || undefined,
     focusAreas: m["Primary Product Focus Areas"]
       ? m["Primary Product Focus Areas"].split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,

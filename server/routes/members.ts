@@ -173,14 +173,9 @@ router.get('/directory', requireAuth, async (_req, res) => {
   try {
     const members = await getDirectory()
 
-    // DEBUG: log sheet column headers from first member
-    if (members.length > 0) {
-      console.log('[directory] Sheet columns:', Object.keys(members[0]))
-    }
-
-    // Collect emails for batch DB lookup
+    // Collect emails — sheet column may be 'email' (lowercase) or 'Email'
     const emails = members
-      .map((m) => m['Email']?.trim())
+      .map((m) => (m['email'] ?? m['Email'])?.trim())
       .filter((e): e is string => !!e)
 
     // Batch-query enriched profiles from DB
@@ -198,7 +193,7 @@ router.get('/directory', requireAuth, async (_req, res) => {
     }
 
     const enriched = members.map((m) => {
-      const email = m['Email']?.trim()
+      const email = (m['email'] ?? m['Email'])?.trim()
       const result = { ...m }
 
       if (email) {
