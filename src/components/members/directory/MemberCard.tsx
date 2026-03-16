@@ -20,6 +20,7 @@ interface MemberCardProps {
   location?: string
   gravatarUrl?: string
   photoUrl?: string
+  memberSince?: string
   expanded?: boolean
   onToggle?: () => void
 }
@@ -27,7 +28,7 @@ interface MemberCardProps {
 export function MemberCard({
   name, role, currentOrg, sector, focusAreas, linkedIn,
   email, phone, bio, skills, areasOfInterest, location,
-  gravatarUrl, photoUrl, expanded, onToggle,
+  gravatarUrl, photoUrl, memberSince, expanded, onToggle,
 }: MemberCardProps) {
   return (
     <Card
@@ -87,7 +88,14 @@ export function MemberCard({
 
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{role}</p>
             {currentOrg && <p className="text-xs text-muted-foreground truncate">{currentOrg}</p>}
-            {sector && <Badge variant="outline" className="text-xs mt-1">{sector}</Badge>}
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {sector && <Badge variant="outline" className="text-xs">{sector}</Badge>}
+              {memberSince && (
+                <span className="text-xs text-muted-foreground">
+                  Member since {new Date(memberSince).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                </span>
+              )}
+            </div>
 
             {focusAreas && focusAreas.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">

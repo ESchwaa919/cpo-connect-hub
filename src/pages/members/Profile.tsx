@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
 
 interface Profile {
   email: string
@@ -228,8 +229,18 @@ export default function Profile() {
 
       <form onSubmit={handleSave}>
         <Card className="bg-card/50 border-border/50">
-          <CardHeader>
-            <CardTitle className="text-lg">Personal Information</CardTitle>
+          <CardHeader className="flex flex-row items-center gap-4">
+            {profile && (
+              <MemberAvatar
+                name={profile.name}
+                photoUrl={profile.photo_url || undefined}
+                size={64}
+              />
+            )}
+            <div>
+              <CardTitle className="text-lg">Personal Information</CardTitle>
+              <p className="text-sm text-muted-foreground mt-0.5">{profile?.email}</p>
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2">
