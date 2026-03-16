@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Save, Loader2, Linkedin, RefreshCw } from "lucide-react"
+import { Save, Loader2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
 
@@ -23,15 +22,11 @@ interface Profile {
   linkedin_url: string
   bio: string | null
   skills: string
-  enrichment_source: string
-  profile_enriched: boolean
   photo_url: string
-  enriched_at: string | null
+  show_email: boolean
+  show_phone: boolean
   updated_at: string | null
 }
-
-type EnrichedField = 'bio' | 'skills' | 'role' | 'current_org' | 'sector' | 'location'
-const ENRICHED_FIELDS = new Set<EnrichedField>(['bio', 'skills', 'role', 'current_org', 'sector', 'location'])
 
 async function fetchProfile(): Promise<Profile> {
   const res = await fetch("/api/members/profile", { credentials: "include" })
@@ -48,44 +43,6 @@ async function updateProfile(data: Partial<Profile>): Promise<Profile> {
   })
   if (!res.ok) throw new Error("Failed to save profile")
   return res.json()
-}
-
-async function enrichProfile(): Promise<Profile> {
-  const res = await fetch("/api/members/profile/enrich", {
-    method: "POST",
-    credentials: "include",
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || "Enrichment failed")
-  }
-  return res.json()
-}
-
-function EnrichedBadge() {
-  return (
-    <Badge variant="outline" className="ml-2 text-xs font-normal gap-1 text-primary border-primary/30">
-      <Linkedin className="h-3 w-3" />
-      LinkedIn
-    </Badge>
-  )
-}
-
-function EnrichedLabel({ htmlFor, children, field, isEnriched }: {
-  htmlFor: string; children: string; field: EnrichedField; isEnriched: boolean
-}) {
-  return (
-    <div className="flex items-center">
-      <Label htmlFor={htmlFor}>{children}</Label>
-      {isEnriched && ENRICHED_FIELDS.has(field) && <EnrichedBadge />}
-    </div>
-  )
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function ProfileSkeleton() {
@@ -131,6 +88,8 @@ export default function Profile() {
         linkedin_url: profile.linkedin_url,
         bio: profile.bio ?? "",
         skills: profile.skills,
+        show_email: profile.show_email,
+        show_phone: profile.show_phone,
       })
       setDirty(false)
     }
@@ -146,26 +105,7 @@ export default function Profile() {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  const enrichMutation = useMutation({
-    mutationFn: enrichProfile,
-    onSuccess: (data) => {
-      queryClient.setQueryData(["profile"], data)
-      setForm((prev) => ({
-        ...prev,
-        bio: data.bio ?? "",
-        skills: data.skills,
-        role: data.role,
-        current_org: data.current_org,
-        sector: data.sector,
-        location: data.location,
-      }))
-      setDirty(false)
-      toast.success("Profile enriched from LinkedIn")
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
-  function onChange(field: keyof Profile, value: string) {
+  function onChange(field: keyof Profile, value: string | boolean) {
     setForm((prev) => ({ ...prev, [field]: value }))
     setDirty(true)
   }
@@ -185,47 +125,9 @@ export default function Profile() {
     )
   }
 
-  const isEnriched = !!(profile?.profile_enriched && profile?.enrichment_source === 'linkedin')
-  const hasLinkedIn = !!profile?.linkedin_url
-
   return (
     <div>
       <h1 className="text-3xl font-bold font-display mb-6">Your Profile</h1>
-
-      {hasLinkedIn && (
-        <Card className="mb-6 border-primary/30 bg-primary/5">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <p className="font-medium text-sm">
-                {isEnriched ? "Profile enriched from LinkedIn" : "Enrich your profile from LinkedIn"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {isEnriched && profile?.enriched_at
-                  ? `Last enriched: ${formatDate(profile.enriched_at)}. Sync again to update with latest LinkedIn data.`
-                  : "We'll use AI to extract your bio, skills, role, and more from your LinkedIn profile."}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant={isEnriched ? "outline" : "default"}
-              onClick={() => enrichMutation.mutate()}
-              disabled={enrichMutation.isPending}
-            >
-              {enrichMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Enriching...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {isEnriched ? "Sync again" : "Enrich Profile"}
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       <form onSubmit={handleSave}>
         <Card className="bg-card/50 border-border/50">
@@ -240,6 +142,15 @@ export default function Profile() {
             <div>
               <CardTitle className="text-lg">Personal Information</CardTitle>
               <p className="text-sm text-muted-foreground mt-0.5">{profile?.email}</p>
+              <a
+                href="https://gravatar.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1"
+              >
+                Want a photo? Set up a free Gravatar
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -253,7 +164,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <EnrichedLabel htmlFor="role" field="role" isEnriched={isEnriched}>Role</EnrichedLabel>
+                <Label htmlFor="role">Role</Label>
                 <Input
                   id="role"
                   value={form.role ?? ""}
@@ -261,7 +172,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <EnrichedLabel htmlFor="current_org" field="current_org" isEnriched={isEnriched}>Organisation</EnrichedLabel>
+                <Label htmlFor="current_org">Organisation</Label>
                 <Input
                   id="current_org"
                   value={form.current_org ?? ""}
@@ -269,7 +180,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <EnrichedLabel htmlFor="sector" field="sector" isEnriched={isEnriched}>Sector</EnrichedLabel>
+                <Label htmlFor="sector">Sector</Label>
                 <Input
                   id="sector"
                   value={form.sector ?? ""}
@@ -277,7 +188,7 @@ export default function Profile() {
                 />
               </div>
               <div className="space-y-2">
-                <EnrichedLabel htmlFor="location" field="location" isEnriched={isEnriched}>Location</EnrichedLabel>
+                <Label htmlFor="location">Location</Label>
                 <Input
                   id="location"
                   value={form.location ?? ""}
@@ -316,7 +227,7 @@ export default function Profile() {
             </div>
 
             <div className="space-y-2">
-              <EnrichedLabel htmlFor="skills" field="skills" isEnriched={isEnriched}>Skills</EnrichedLabel>
+              <Label htmlFor="skills">Skills</Label>
               <Input
                 id="skills"
                 value={form.skills ?? ""}
@@ -326,7 +237,7 @@ export default function Profile() {
             </div>
 
             <div className="space-y-2">
-              <EnrichedLabel htmlFor="bio" field="bio" isEnriched={isEnriched}>Bio</EnrichedLabel>
+              <Label htmlFor="bio">Bio</Label>
               <Textarea
                 id="bio"
                 rows={5}
@@ -334,6 +245,33 @@ export default function Profile() {
                 onChange={(e) => onChange("bio", e.target.value)}
                 placeholder="Tell the community about yourself..."
               />
+            </div>
+
+            <div className="border-t border-border/50 pt-4">
+              <h3 className="text-sm font-medium mb-3">Directory Privacy</h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                Choose what contact info other members can see on your directory card.
+              </p>
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.show_email ?? false}
+                    onChange={(e) => onChange("show_email", e.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  <span className="text-sm">Show my email address on my directory card</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.show_phone ?? false}
+                    onChange={(e) => onChange("show_phone", e.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  <span className="text-sm">Show my phone number on my directory card</span>
+                </label>
+              </div>
             </div>
           </CardContent>
         </Card>
