@@ -248,29 +248,41 @@ export default function Profile() {
             </div>
 
             <div className="border-t border-border/50 pt-4">
-              <h3 className="text-sm font-medium mb-3">Directory Privacy</h3>
+              <h3 className="text-sm font-medium mb-3">Contact Info &amp; Directory Privacy</h3>
               <p className="text-xs text-muted-foreground mb-4">
-                Choose what contact info other members can see on your directory card.
+                Your contact details (from the membership sheet). Toggle to share on your directory card.
               </p>
-              <div className="flex flex-col gap-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.show_email ?? false}
-                    onChange={(e) => onChange("show_email", e.target.checked)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">Show my email address on my directory card</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.show_phone ?? false}
-                    onChange={(e) => onChange("show_phone", e.target.checked)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  <span className="text-sm">Show my phone number on my directory card</span>
-                </label>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Email</p>
+                    <p className="text-sm text-muted-foreground truncate">{profile?.email || "Not on file"}</p>
+                  </div>
+                  <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.show_email ?? false}
+                      onChange={(e) => onChange("show_email", e.target.checked)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    <span className="text-xs text-muted-foreground">Show in directory</span>
+                  </label>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Phone</p>
+                    <p className="text-sm text-muted-foreground truncate">{profile?.email ? "See membership sheet" : "Not on file"}</p>
+                  </div>
+                  <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.show_phone ?? false}
+                      onChange={(e) => onChange("show_phone", e.target.checked)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    <span className="text-xs text-muted-foreground">Show in directory</span>
+                  </label>
+                </div>
               </div>
             </div>
           </CardContent>
