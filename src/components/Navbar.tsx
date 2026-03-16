@@ -31,7 +31,7 @@ const memberLinks = [
 ]
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading, hasChecked, logout } = useAuth()
+  const { user, isAuthenticated, hasChecked, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
