@@ -101,7 +101,10 @@ export default function Directory() {
 
   const members = useMemo<Member[]>(() => {
     if (!rawMembers) return []
-    return rawMembers.map(normalizeMember).filter((m) => m.name)
+    return rawMembers
+      .map(normalizeMember)
+      .filter((m) => m.name)
+      .sort((a, b) => a.name.localeCompare(b.name))
   }, [rawMembers])
 
   const uniqueRoles = useMemo(() => {
