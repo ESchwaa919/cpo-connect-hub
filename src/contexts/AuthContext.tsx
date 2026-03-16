@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
 
 interface User {
   name: string
@@ -39,6 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data)
       } else {
         setUser(null)
+        // Clear stale hint cookie on auth failure
+        document.cookie = 'cpo_has_session=; path=/; max-age=0'
       }
     } catch {
       setUser(null)
@@ -48,9 +50,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Don't auto-check on mount — the cookie is httpOnly so JS can't detect it.
-  // ProtectedRoute triggers checkAuth() on demand when navigating to /members/*.
-  // This avoids 401 console errors on the public landing page.
+  // Auto-check session on mount if the hint cookie is present.
+  // If no hint cookie, mark as checked immediately (no fetch needed).
+  useEffect(() => {
+    if (document.cookie.includes('cpo_has_session')) {
+      checkAuth()
+    } else {
+      setHasChecked(true)
+    }
+  }, [checkAuth])
 
   const login = useCallback(async (email: string): Promise<LoginResult> => {
     const res = await fetch("/api/auth/request", {
