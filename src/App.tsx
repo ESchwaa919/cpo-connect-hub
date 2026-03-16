@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "sonner"
 import { AuthProvider } from "@/contexts/AuthContext"
+import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { MembersLayout } from "@/components/members/MembersLayout"
 import Index from "@/pages/Index"
@@ -25,7 +26,8 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter>
-          <AuthProvider>
+          <ThemeProvider>
+            <AuthProvider>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route
@@ -68,7 +70,8 @@ function App() {
               />
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </AuthProvider>
+            </AuthProvider>
+          </ThemeProvider>
         </BrowserRouter>
         <Toaster />
       </TooltipProvider>

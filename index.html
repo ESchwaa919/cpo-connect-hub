@@ -9,6 +9,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CPO Connect — The Peer Network for Senior Product Leaders</title>
     <meta name="robots" content="noindex, nofollow" />
+    <script>
+      // Prevent theme flash — runs before React
+      (function() {
+        var theme = localStorage.getItem('cpo-theme');
+        if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
