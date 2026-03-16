@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Save, Loader2, ExternalLink, Linkedin } from "lucide-react"
+import { Save, Loader2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -128,39 +128,6 @@ export default function Profile() {
   return (
     <div>
       <h1 className="text-3xl font-bold font-display mb-6">Your Profile</h1>
-
-      <Card className="mb-6 border-primary/30 bg-primary/5">
-        <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <p className="font-medium text-sm">Autofill from LinkedIn</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Populate your profile fields directly from your LinkedIn account.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            type="button"
-            onClick={() => {
-              const win = window as unknown as Record<string, unknown>
-              if (typeof win.IN === 'object' && win.IN !== null) {
-                const IN = win.IN as { parse?: () => void }
-                // LinkedIn autofill renders its own button — trigger parse to find it
-                IN.parse?.()
-                console.log('[LinkedIn Autofill] IN object available, parse called')
-                console.log('[LinkedIn Autofill] IN keys:', Object.keys(win.IN as object))
-              } else {
-                console.log('[LinkedIn Autofill] IN object not available — script may not have loaded')
-                console.log('[LinkedIn Autofill] Checking window keys with "IN" or "linkedin":',
-                  Object.keys(window).filter(k => k.toLowerCase().includes('in') || k.toLowerCase().includes('linkedin')))
-                toast.error('LinkedIn Autofill not available — check browser console for details')
-              }
-            }}
-          >
-            <Linkedin className="mr-2 h-4 w-4" />
-            Autofill from LinkedIn
-          </Button>
-        </CardContent>
-      </Card>
 
       <form onSubmit={handleSave}>
         <Card className="bg-card/50 border-border/50">
