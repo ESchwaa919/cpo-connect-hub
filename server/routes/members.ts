@@ -173,6 +173,11 @@ router.get('/directory', requireAuth, async (_req, res) => {
   try {
     const members = await getDirectory()
 
+    // DEBUG: log sheet column headers from first member
+    if (members.length > 0) {
+      console.log('[directory] Sheet columns:', Object.keys(members[0]))
+    }
+
     // Collect emails for batch DB lookup
     const emails = members
       .map((m) => m['Email']?.trim())
