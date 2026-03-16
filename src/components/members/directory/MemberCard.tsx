@@ -19,6 +19,7 @@ interface MemberCardProps {
   areasOfInterest?: string[]
   location?: string
   gravatarUrl?: string
+  photoUrl?: string
   expanded?: boolean
   onToggle?: () => void
 }
@@ -26,7 +27,7 @@ interface MemberCardProps {
 export function MemberCard({
   name, role, currentOrg, sector, focusAreas, linkedIn,
   email, phone, bio, skills, areasOfInterest, location,
-  gravatarUrl, expanded, onToggle,
+  gravatarUrl, photoUrl, expanded, onToggle,
 }: MemberCardProps) {
   return (
     <Card
@@ -41,6 +42,7 @@ export function MemberCard({
         <div className="flex items-start gap-4">
           <MemberAvatar
             name={name}
+            photoUrl={photoUrl}
             gravatarUrl={gravatarUrl}
             size={expanded ? 80 : 48}
             className="shrink-0"
