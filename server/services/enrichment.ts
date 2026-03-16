@@ -46,8 +46,10 @@ async function fetchDirect(url: string): Promise<string> {
     },
     signal: AbortSignal.timeout(10_000),
   })
-  if (!response.ok) return ''
-  return (await response.text()).slice(0, 50_000)
+  // LinkedIn returns HTTP 999 (soft block) but the body still contains
+  // profile meta tags (og:image, og:description). Read body regardless of status.
+  const text = await response.text()
+  return text.slice(0, 50_000)
 }
 
 export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Promise<EnrichmentResult> {
