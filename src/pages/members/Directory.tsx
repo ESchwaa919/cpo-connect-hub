@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -23,10 +23,13 @@ interface Member {
   currentOrg?: string
   sector?: string
   location?: string
+  email?: string
+  phone?: string
   focusAreas?: string[]
   areasOfInterest?: string[]
   bio?: string
   skills?: string[]
+  gravatarUrl?: string
 }
 
 function normalizeMember(m: RawMember): Member {
@@ -37,6 +40,8 @@ function normalizeMember(m: RawMember): Member {
     currentOrg: m["Current Org"] || undefined,
     sector: m["Sector"] || undefined,
     location: m["Location"] || undefined,
+    email: m["Email"] || undefined,
+    phone: m["Phone"] || undefined,
     focusAreas: m["Primary Product Focus Areas"]
       ? m["Primary Product Focus Areas"].split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
@@ -47,6 +52,7 @@ function normalizeMember(m: RawMember): Member {
     skills: m["Skills"]
       ? m["Skills"].split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
+    gravatarUrl: m["gravatarUrl"] || undefined,
   }
 }
 
@@ -76,6 +82,7 @@ function SkeletonCard() {
 export default function Directory() {
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null)
 
   const { data: rawMembers, isLoading, isError } = useQuery<RawMember[]>({
     queryKey: ["directory"],
@@ -102,6 +109,7 @@ export default function Directory() {
         (m.currentOrg?.toLowerCase().includes(q) ?? false) ||
         (m.sector?.toLowerCase().includes(q) ?? false) ||
         (m.location?.toLowerCase().includes(q) ?? false) ||
+        (m.email?.toLowerCase().includes(q) ?? false) ||
         (m.bio?.toLowerCase().includes(q) ?? false) ||
         (m.skills?.some((s) => s.toLowerCase().includes(q)) ?? false) ||
         (m.focusAreas?.some((a) => a.toLowerCase().includes(q)) ?? false) ||
@@ -122,8 +130,17 @@ export default function Directory() {
             placeholder="Search by name, role, organisation, sector, skills…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 pr-9"
           />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         <Select value={roleFilter} onValueChange={setRoleFilter}>
@@ -158,7 +175,9 @@ export default function Directory() {
       {!isLoading && !isError && (
         <>
           <p className="text-sm text-muted-foreground mb-4">
-            {filtered.length} member{filtered.length !== 1 ? "s" : ""}
+            {search || roleFilter !== "all"
+              ? `Showing ${filtered.length} of ${members.length} members`
+              : `${filtered.length} member${filtered.length !== 1 ? "s" : ""}`}
           </p>
 
           {filtered.length === 0 ? (
@@ -167,17 +186,29 @@ export default function Directory() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filtered.map((member, i) => (
-                <MemberCard
-                  key={`${member.name}-${i}`}
-                  name={member.name}
-                  role={member.role}
-                  currentOrg={member.currentOrg}
-                  sector={member.sector}
-                  focusAreas={member.focusAreas}
-                  linkedIn={member.linkedIn}
-                />
-              ))}
+              {filtered.map((member, i) => {
+                const memberId = `${member.name}-${i}`
+                return (
+                  <MemberCard
+                    key={memberId}
+                    name={member.name}
+                    role={member.role}
+                    currentOrg={member.currentOrg}
+                    sector={member.sector}
+                    focusAreas={member.focusAreas}
+                    linkedIn={member.linkedIn}
+                    email={member.email}
+                    phone={member.phone}
+                    bio={member.bio}
+                    skills={member.skills}
+                    areasOfInterest={member.areasOfInterest}
+                    location={member.location}
+                    gravatarUrl={member.gravatarUrl}
+                    expanded={expandedMemberId === memberId}
+                    onToggle={() => setExpandedMemberId(expandedMemberId === memberId ? null : memberId)}
+                  />
+                )
+              })}
             </div>
           )}
         </>

@@ -1,9 +1,15 @@
 import { Router } from 'express'
+import { createHash } from 'node:crypto'
 import { requireAuth } from '../middleware/auth.ts'
 import { getDirectory } from '../services/sheets.ts'
 import { createRateLimiter } from '../services/rate-limit.ts'
 import { enrichFromLinkedIn } from '../services/enrichment.ts'
 import pool from '../db.ts'
+
+function gravatarUrl(email: string, size = 80): string {
+  const hash = createHash('md5').update(email.trim().toLowerCase()).digest('hex')
+  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`
+}
 
 const router = Router()
 
@@ -136,7 +142,14 @@ router.post('/profile/enrich', requireAuth, async (req, res) => {
 router.get('/directory', requireAuth, async (_req, res) => {
   try {
     const members = await getDirectory()
-    res.status(200).json({ members })
+    const enriched = members.map((m) => {
+      const email = m['Email']?.trim()
+      if (email) {
+        return { ...m, gravatarUrl: gravatarUrl(email) }
+      }
+      return m
+    })
+    res.status(200).json({ members: enriched })
   } catch (err) {
     console.error('GET /directory error:', (err as Error).message)
     res.status(500).json({ error: 'Service temporarily unavailable', code: 'service_error' })
