@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic()
 
+const PLAYWRIGHT_URL = process.env.PLAYWRIGHT_RENDERER_URL ?? 'https://playwright-renderer.onrender.com'
+
 export interface EnrichmentResult {
   bio: string
   skills: string
@@ -13,7 +15,6 @@ export interface EnrichmentResult {
 }
 
 function extractOgImage(html: string): string {
-  // Extract og:image before stripping HTML tags
   const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
     ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
   if (!match?.[1]) return ''
@@ -23,33 +24,66 @@ function extractOgImage(html: string): string {
   return url
 }
 
+async function fetchViaPlaywright(url: string): Promise<string> {
+  const response = await fetch(`${PLAYWRIGHT_URL}/raw-html`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal: AbortSignal.timeout(60_000), // Playwright needs time to render
+  })
+  if (!response.ok) {
+    throw new Error(`Playwright returned ${response.status}`)
+  }
+  const data = await response.json() as { html: string; title: string }
+  return data.html
+}
+
+async function fetchDirect(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; CPOConnect/1.0)',
+      'Accept': 'text/html',
+    },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) return ''
+  return (await response.text()).slice(0, 50_000)
+}
+
 export async function enrichFromLinkedIn(linkedinUrl: string, name: string): Promise<EnrichmentResult> {
-  // Attempt to fetch the public LinkedIn page
   let pageContent = ''
   let photoUrl = ''
+
+  // Try Playwright first (renders JS, bypasses login walls), fall back to direct fetch
   try {
-    const response = await fetch(linkedinUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; CPOConnect/1.0)',
-        'Accept': 'text/html',
-      },
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (response.ok) {
-      // Cap raw HTML before processing to avoid processing megabytes
-      const html = (await response.text()).slice(0, 50_000)
-      // Extract og:image BEFORE stripping HTML
-      photoUrl = extractOgImage(html)
-      pageContent = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 8000)
+    console.log('[enrichment] Fetching via Playwright:', linkedinUrl)
+    const html = await fetchViaPlaywright(linkedinUrl)
+    photoUrl = extractOgImage(html)
+    pageContent = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 8000)
+    console.log('[enrichment] Playwright success — content length:', pageContent.length, 'photoUrl:', photoUrl ? 'found' : 'none')
+  } catch (err) {
+    console.warn('[enrichment] Playwright failed, falling back to direct fetch:', (err as Error).message)
+    try {
+      const html = await fetchDirect(linkedinUrl)
+      if (html) {
+        photoUrl = extractOgImage(html)
+        pageContent = html
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 8000)
+      }
+    } catch {
+      // Both methods failed — proceed with name-only context
     }
-  } catch {
-    // LinkedIn may block the request — proceed with name-only context
   }
 
   const contextBlock = pageContent
