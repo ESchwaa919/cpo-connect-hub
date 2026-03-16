@@ -3,7 +3,6 @@ import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { LoginModal } from "@/components/LoginModal"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Menu, X, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
 import logo from "@/assets/logo.png"
 
 const publicLinks = [
@@ -28,16 +28,6 @@ const memberLinks = [
   { label: "Directory", to: "/members/directory" },
   { label: "Profile", to: "/members/profile" },
 ]
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
 
 export function Navbar() {
   const { user, isAuthenticated, isLoading, hasChecked, logout } = useAuth()
@@ -157,11 +147,7 @@ export function Navbar() {
                     variant="ghost"
                     className="relative h-8 w-8 rounded-full"
                   >
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="text-xs">
-                        {getInitials(user.name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <MemberAvatar name={user.name} size={32} />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" align="end" forceMount>
