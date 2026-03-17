@@ -34,6 +34,28 @@ interface Member {
   memberSince?: string
 }
 
+/** Normalize phone numbers mangled by Google Sheets (stripped +, scientific notation). */
+function normalizePhone(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  let digits = raw.trim()
+
+  // Scientific notation (e.g. "4.47911E+10") → full integer string
+  if (/e\+/i.test(digits)) {
+    digits = Number(digits).toFixed(0)
+  }
+
+  // Strip anything that isn't a digit
+  digits = digits.replace(/\D/g, "")
+  if (!digits) return undefined
+
+  // 0-prefixed UK local → +44
+  if (digits.startsWith("0")) {
+    digits = "44" + digits.slice(1)
+  }
+
+  return "+" + digits
+}
+
 function normalizeMember(m: RawMember): Member {
   // Sheet1 column names (primary source)
   const name = m["Full Name"] || m["Name"] || ""
@@ -49,7 +71,7 @@ function normalizeMember(m: RawMember): Member {
     sector: m["Industry"] || m["Sector"] || undefined,
     location: m["Location"] || undefined,
     email: m["Email"] || undefined,
-    phone: m["Phone number"] || m["Phone"] || undefined,
+    phone: normalizePhone(m["Phone number"] || m["Phone"]),
     focusAreas: rawFocusAreas
       ? rawFocusAreas.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined,
