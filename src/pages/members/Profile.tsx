@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Save, Loader2, ExternalLink } from "lucide-react"
+import { Save, Loader2, ExternalLink, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -32,6 +32,15 @@ interface Profile {
 async function fetchProfile(): Promise<Profile> {
   const res = await fetch("/api/members/profile", { credentials: "include" })
   if (!res.ok) throw new Error("Failed to load profile")
+  return res.json()
+}
+
+async function resyncProfile(): Promise<Profile & { synced: number }> {
+  const res = await fetch("/api/members/profile/resync", {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!res.ok) throw new Error("Failed to resync profile")
   return res.json()
 }
 
@@ -103,6 +112,20 @@ export default function Profile() {
       queryClient.setQueryData(["profile"], data)
       setDirty(false)
       toast.success("Profile saved")
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const resyncMutation = useMutation({
+    mutationFn: resyncProfile,
+    onSuccess: (data) => {
+      queryClient.setQueryData(["profile"], data)
+      const n = data.synced
+      if (n > 0) {
+        toast.success(`Synced ${n} field${n !== 1 ? "s" : ""} from membership data`)
+      } else {
+        toast.info("Profile already up to date")
+      }
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -294,7 +317,25 @@ export default function Profile() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end mt-4">
+        <div className="flex justify-between mt-4">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={resyncMutation.isPending}
+            onClick={() => resyncMutation.mutate()}
+          >
+            {resyncMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Syncing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Resync from membership data
+              </>
+            )}
+          </Button>
           <Button type="submit" disabled={!dirty || saveMutation.isPending}>
             {saveMutation.isPending ? (
               <>

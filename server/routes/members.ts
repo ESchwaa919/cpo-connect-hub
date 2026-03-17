@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { createHash } from 'node:crypto'
 import { requireAuth } from '../middleware/auth.ts'
-import { getDirectory } from '../services/sheets.ts'
+import { getDirectory, lookupMember } from '../services/sheets.ts'
 import pool from '../db.ts'
 
 function gravatarUrl(email: string, size = 80): string {
@@ -76,6 +76,72 @@ router.put('/profile', requireAuth, async (req, res) => {
     res.status(200).json(result.rows[0])
   } catch (err) {
     console.error('PUT /profile error:', (err as Error).message)
+    res.status(500).json({ error: 'Service temporarily unavailable', code: 'service_error' })
+  }
+})
+
+// Sheet1 field → DB column mapping for resync (only fill-able fields)
+const SHEET_TO_DB: [keyof import('../services/sheets.ts').MemberRecord, string][] = [
+  ['name', 'name'],
+  ['jobRole', 'role'],
+  ['currentOrg', 'current_org'],
+  ['industry', 'sector'],
+  ['location', 'location'],
+  ['focusAreas', 'focus_areas'],
+  ['areasOfInterest', 'areas_of_interest'],
+  ['linkedinUrl', 'linkedin_url'],
+  ['phone', 'phone'],
+]
+
+// ---------------------------------------------------------------------------
+// POST /profile/resync — back-fill empty profile fields from Sheet1
+// ---------------------------------------------------------------------------
+router.post('/profile/resync', requireAuth, async (req, res) => {
+  try {
+    const email = req.user!.email
+
+    const member = await lookupMember(email)
+    if (!member) {
+      res.status(404).json({ error: 'Member not found in Sheet1', code: 'member_not_found' })
+      return
+    }
+
+    const current = await pool.query(PROFILE_SELECT, [email])
+    if (current.rows.length === 0) {
+      res.status(404).json({ error: 'Profile not found', code: 'profile_not_found' })
+      return
+    }
+
+    const profile = current.rows[0] as Record<string, unknown>
+
+    // Only fill fields that are currently empty in the DB
+    const updates: Record<string, string> = {}
+    for (const [sheetKey, dbCol] of SHEET_TO_DB) {
+      const sheetVal = member[sheetKey]
+      const dbVal = profile[dbCol]
+      if (sheetVal && (!dbVal || (typeof dbVal === 'string' && !dbVal.trim()))) {
+        updates[dbCol] = sheetVal
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      // Nothing to fill — return current profile unchanged
+      res.status(200).json({ ...profile, synced: 0 })
+      return
+    }
+
+    const setClauses = Object.keys(updates).map((key, i) => `"${key}" = $${i + 2}`)
+    setClauses.push('updated_at = NOW()')
+    const values = [email, ...Object.values(updates)]
+
+    const result = await pool.query(
+      `UPDATE cpo_connect.member_profiles SET ${setClauses.join(', ')} WHERE email = $1 RETURNING ${PROFILE_COLUMNS}`,
+      values
+    )
+
+    res.status(200).json({ ...result.rows[0], synced: Object.keys(updates).length })
+  } catch (err) {
+    console.error('POST /profile/resync error:', (err as Error).message)
     res.status(500).json({ error: 'Service temporarily unavailable', code: 'service_error' })
   }
 })
