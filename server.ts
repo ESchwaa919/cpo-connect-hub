@@ -25,6 +25,13 @@ app.get('/health', (_req, res) => {
 app.use('/api/auth', authRouter)
 app.use('/api/members', membersRouter)
 
+// Service worker must not be cached by the browser
+app.get('/sw.js', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+  res.setHeader('Service-Worker-Allowed', '/')
+  next()
+})
+
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, 'dist')))
 

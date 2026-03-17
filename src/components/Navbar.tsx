@@ -11,7 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, X, LogOut, Sun, Moon } from "lucide-react"
+import { Menu, X, LogOut, Sun, Moon, Download } from "lucide-react"
+import { useInstallPrompt } from "@/hooks/useInstallPrompt"
 import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
@@ -33,6 +34,7 @@ const memberLinks = [
 export function Navbar() {
   const { user, isAuthenticated, hasChecked, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const { canInstall, promptInstall } = useInstallPrompt()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -117,6 +119,17 @@ export function Navbar() {
                   {link.label}
                 </Link>
               ))}
+            {canInstall && isAuthenticated && isMembersPage && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={promptInstall}
+                className="h-8 w-8"
+                aria-label="Install app"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -229,6 +242,20 @@ export function Navbar() {
                   </Link>
                 ))}
               <div className="flex flex-col space-y-2 pt-3 border-t">
+                {canInstall && isAuthenticated && isMembersPage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      promptInstall()
+                      setMobileMenuOpen(false)
+                    }}
+                    className="justify-start"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Install App
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
