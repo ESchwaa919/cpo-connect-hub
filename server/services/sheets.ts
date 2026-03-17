@@ -174,16 +174,6 @@ export async function getDirectory(): Promise<DirectoryEntry[]> {
   try {
     const { headers, rows } = await fetchSheet1()
     const trimmedHeaders = headers.map((h) => h.trim())
-
-    // DEBUG: log exact headers and first row to diagnose phone column issue
-    console.log('[getDirectory] Sheet1 headers:', JSON.stringify(trimmedHeaders))
-    if (rows.length > 0) {
-      const firstEntry: Record<string, string> = {}
-      trimmedHeaders.forEach((h, i) => { firstEntry[h] = rows[0][i] ?? '' })
-      console.log('[getDirectory] First row keys:', Object.keys(firstEntry))
-      console.log('[getDirectory] First row data:', JSON.stringify(firstEntry))
-    }
-
     const statusIdx = colIndex(headers, 'Status')
 
     const entries: DirectoryEntry[] = []

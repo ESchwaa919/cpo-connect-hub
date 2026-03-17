@@ -151,12 +151,6 @@ router.get('/directory', requireAuth, async (_req, res) => {
       return result
     })
 
-    // DEBUG: log first member's keys to check phone column name
-    if (enriched.length > 0) {
-      console.log('[directory] First enriched member keys:', Object.keys(enriched[0]))
-      console.log('[directory] Phone number value:', JSON.stringify(enriched[0]['Phone number']))
-    }
-
     res.status(200).json({ members: enriched })
   } catch (err) {
     console.error('GET /directory error:', (err as Error).message)
