@@ -36,7 +36,11 @@ router.get('/profile', requireAuth, async (req, res) => {
       return
     }
 
-    res.status(200).json(result.rows[0])
+    const profile = result.rows[0] as Record<string, unknown>
+    if (profile.email) {
+      profile.gravatar_url = gravatarUrl(profile.email as string)
+    }
+    res.status(200).json(profile)
   } catch (err) {
     console.error('GET /profile error:', (err as Error).message)
     res.status(500).json({ error: 'Service temporarily unavailable', code: 'service_error' })

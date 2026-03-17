@@ -24,6 +24,7 @@ interface Profile {
   skills: string
   phone: string
   photo_url: string
+  gravatar_url: string
   show_email: boolean
   show_phone: boolean
   updated_at: string | null
@@ -161,6 +162,7 @@ export default function Profile() {
               <MemberAvatar
                 name={profile.name}
                 photoUrl={profile.photo_url || undefined}
+                gravatarUrl={profile.gravatar_url || undefined}
                 size={64}
               />
             )}
