@@ -191,10 +191,8 @@ router.get('/directory', requireAuth, async (_req, res) => {
         const showEmail = profile?.show_email === true
         const showPhone = profile?.show_phone === true
 
-        // Gravatar only for members who opted in to showing email
-        if (showEmail) {
-          result.gravatarUrl = gravatarUrl(email)
-        }
+        // Gravatar for all members — MD5 hash is one-way, doesn't expose email
+        result.gravatarUrl = gravatarUrl(email)
 
         // Overlay DB profile fields on top of sheet data
         if (profile) {
