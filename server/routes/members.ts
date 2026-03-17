@@ -15,12 +15,12 @@ const router = Router()
 const EDITABLE_FIELDS = [
   'name', 'role', 'current_org', 'sector', 'location',
   'focus_areas', 'areas_of_interest', 'linkedin_url', 'bio', 'skills',
-  'show_email', 'show_phone',
+  'phone', 'show_email', 'show_phone',
 ] as const
 
 const PROFILE_COLUMNS = `email, name, role, current_org, sector, location,
   focus_areas, areas_of_interest, linkedin_url, bio, skills,
-  photo_url, show_email, show_phone, updated_at`
+  phone, photo_url, show_email, show_phone, updated_at`
 
 const PROFILE_SELECT = `SELECT ${PROFILE_COLUMNS} FROM cpo_connect.member_profiles WHERE email = $1`
 
@@ -106,7 +106,7 @@ router.get('/directory', requireAuth, async (_req, res) => {
     const profileMap = new Map<string, Record<string, unknown>>()
     if (emails.length > 0) {
       const profileResult = await pool.query(
-        `SELECT email, bio, skills, role, current_org, sector, location, photo_url, show_email, show_phone
+        `SELECT email, bio, skills, role, current_org, sector, location, phone, photo_url, show_email, show_phone
          FROM cpo_connect.member_profiles
          WHERE email = ANY($1)`,
         [emails]
@@ -136,6 +136,8 @@ router.get('/directory', requireAuth, async (_req, res) => {
             if (profile[dbCol]) result[sheetKey] = profile[dbCol] as string
           }
           if (profile.photo_url) result.photoUrl = profile.photo_url as string
+          // Phone from DB overrides sheet
+          if (profile.phone) result['Phone number'] = profile.phone as string
         }
 
         // Strip email/phone unless member has opted in

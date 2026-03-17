@@ -84,6 +84,7 @@ export interface MemberRecord {
   industry: string
   focusAreas: string
   areasOfInterest: string
+  phone: string
 }
 
 const sheet1Cache = makeCache<Sheet1Cache>()
@@ -126,6 +127,7 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
   const industryCol = colIndex(headers, 'Industry')
   const focusAreasCol = colIndex(headers, 'Primary Product Focus Areas')
   const areasOfInterestCol = colIndex(headers, 'Areas of Interest')
+  const phoneCol = colIndex(headers, 'Phone number')
 
   if (emailCol === -1) {
     console.error('[sheets] No "Email" column found in headers:', headers)
@@ -148,6 +150,7 @@ export async function lookupMember(email: string): Promise<MemberRecord | null> 
         industry: industryCol !== -1 ? (row[industryCol] ?? '') : '',
         focusAreas: focusAreasCol !== -1 ? (row[focusAreasCol] ?? '') : '',
         areasOfInterest: areasOfInterestCol !== -1 ? (row[areasOfInterestCol] ?? '') : '',
+        phone: phoneCol !== -1 ? (row[phoneCol] ?? '') : '',
       }
       return result
     }

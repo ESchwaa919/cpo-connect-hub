@@ -158,8 +158,8 @@ router.get('/verify', async (req, res) => {
       if (profileExists.rows.length === 0 && member) {
         await pool.query(
           `INSERT INTO cpo_connect.member_profiles
-           (email, name, role, current_org, sector, location, focus_areas, areas_of_interest, linkedin_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           (email, name, role, current_org, sector, location, focus_areas, areas_of_interest, linkedin_url, phone)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             tokenRow.email,
             member.name,
@@ -170,6 +170,7 @@ router.get('/verify', async (req, res) => {
             member.focusAreas,
             member.areasOfInterest,
             member.linkedinUrl,
+            member.phone,
           ]
         )
         console.log('[verify] Profile created for:', tokenRow.email)

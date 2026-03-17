@@ -22,6 +22,7 @@ interface Profile {
   linkedin_url: string
   bio: string | null
   skills: string
+  phone: string
   photo_url: string
   show_email: boolean
   show_phone: boolean
@@ -88,6 +89,7 @@ export default function Profile() {
         linkedin_url: profile.linkedin_url,
         bio: profile.bio ?? "",
         skills: profile.skills,
+        phone: profile.phone,
         show_email: profile.show_email,
         show_phone: profile.show_phone,
       })
@@ -248,39 +250,43 @@ export default function Profile() {
             </div>
 
             <div className="border-t border-border/50 pt-4">
-              <h3 className="text-sm font-medium mb-3">Contact Info &amp; Directory Privacy</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Your contact details (from the membership sheet). Toggle to share on your directory card.
-              </p>
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Email</p>
-                    <p className="text-sm text-muted-foreground truncate">{profile?.email || "Not on file"}</p>
-                  </div>
-                  <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+              <h3 className="text-sm font-medium mb-3">Contact Info</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="email_display">Email</Label>
+                  <Input
+                    id="email_display"
+                    value={profile?.email ?? ""}
+                    disabled
+                    className="bg-muted/50"
+                  />
+                  <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={form.show_email ?? false}
                       onChange={(e) => onChange("show_email", e.target.checked)}
                       className="h-4 w-4 rounded border-border"
                     />
-                    <span className="text-xs text-muted-foreground">Show in directory</span>
+                    <span className="text-xs text-muted-foreground">Show on my directory card</span>
                   </label>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Phone</p>
-                    <p className="text-sm text-muted-foreground truncate">{profile?.email ? "See membership sheet" : "Not on file"}</p>
-                  </div>
-                  <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={form.phone ?? ""}
+                    onChange={(e) => onChange("phone", e.target.value)}
+                    placeholder="+44 7700 900000"
+                  />
+                  <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={form.show_phone ?? false}
                       onChange={(e) => onChange("show_phone", e.target.checked)}
                       className="h-4 w-4 rounded border-border"
                     />
-                    <span className="text-xs text-muted-foreground">Show in directory</span>
+                    <span className="text-xs text-muted-foreground">Show on my directory card</span>
                   </label>
                 </div>
               </div>
