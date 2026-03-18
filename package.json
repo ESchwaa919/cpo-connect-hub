@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:server": "tsx --watch server.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsx generate-sw.ts",
     "start": "tsx server.ts",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -67,7 +67,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.0",
-    "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "workbox-build": "^7.4.0"
   }
 }
