@@ -21,6 +21,6 @@ services:
       - key: GOOGLE_SHEET_ID
         value: 14DZ6Zp1UHg688FPTFdbJLCY6AXhgnAcnodV5KjVCAMs
       - key: SESSION_SECRET
-        generateValue: true
+        sync: false
       - key: MAGIC_LINK_BASE_URL
         sync: false
