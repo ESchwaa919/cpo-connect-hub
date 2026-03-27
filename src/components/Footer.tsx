@@ -20,7 +20,7 @@ const Footer = () => {
             <a href="#manifesto" className="hover:text-foreground transition-colors">Manifesto</a>
             <a href="#events" className="hover:text-foreground transition-colors">Events</a>
             <a href="#join" className="hover:text-foreground transition-colors">Join</a>
-            <a href="mailto:cpoconnect@groups.google.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:cpoconnect@googlegroups.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>
         <div className="mt-8 pt-6 border-t text-center text-xs text-muted-foreground">
