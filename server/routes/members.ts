@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { requireAuth } from '../middleware/auth.ts'
 import { getDirectory, lookupMember } from '../services/sheets.ts'
 import pool from '../db.ts'
-import { trackEvent } from '../services/analytics.ts'
+import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 function gravatarUrl(email: string, size = 80): string {
   const hash = createHash('md5').update(email.trim().toLowerCase()).digest('hex')
@@ -30,7 +30,6 @@ const PROFILE_SELECT = `SELECT ${PROFILE_COLUMNS} FROM cpo_connect.member_profil
 // ---------------------------------------------------------------------------
 router.get('/profile', requireAuth, async (req, res) => {
   try {
-    trackEvent('profile_view', req.user!.email)
     const result = await pool.query(PROFILE_SELECT, [req.user!.email])
 
     if (result.rows.length === 0) {
@@ -38,6 +37,7 @@ router.get('/profile', requireAuth, async (req, res) => {
       return
     }
 
+    trackEvent(AnalyticsEvent.PROFILE_VIEW, req.user!.email)
     const profile = result.rows[0] as Record<string, unknown>
     if (profile.email) {
       profile.gravatar_url = gravatarUrl(profile.email as string)
@@ -79,7 +79,7 @@ router.put('/profile', requireAuth, async (req, res) => {
       `UPDATE cpo_connect.member_profiles SET ${setClauses.join(', ')} WHERE email = $1 RETURNING ${PROFILE_COLUMNS}`,
       values
     )
-    trackEvent('profile_update', req.user!.email, { fields: Object.keys(updates) })
+    trackEvent(AnalyticsEvent.PROFILE_UPDATE, req.user!.email, { fields: Object.keys(updates) })
     res.status(200).json(result.rows[0])
   } catch (err) {
     console.error('PUT /profile error:', (err as Error).message)
@@ -168,7 +168,7 @@ const DB_TO_SHEET: [string, string][] = [
 // ---------------------------------------------------------------------------
 router.get('/directory', requireAuth, async (req, res) => {
   try {
-    trackEvent('directory_view', req.user!.email)
+    trackEvent(AnalyticsEvent.DIRECTORY_VIEW, req.user!.email)
     const members = await getDirectory()
 
     // Sheet1 uses 'Email' column

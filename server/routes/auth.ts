@@ -6,7 +6,7 @@ import { lookupMember } from '../services/sheets.ts'
 import { sendMagicLink } from '../services/email.ts'
 import { createRateLimiter } from '../services/rate-limit.ts'
 import { requireAuth } from '../middleware/auth.ts'
-import { trackEvent } from '../services/analytics.ts'
+import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 import type { MemberRecord } from '../services/sheets.ts'
 
 const router = Router()
@@ -94,7 +94,7 @@ router.post('/request', async (req, res) => {
     pool.query('DELETE FROM cpo_connect.magic_link_tokens WHERE expires_at < NOW()').catch(() => {})
     pool.query('DELETE FROM cpo_connect.sessions WHERE expires_at < NOW()').catch(() => {})
 
-    trackEvent('login_request', email)
+    trackEvent(AnalyticsEvent.LOGIN_REQUEST, email)
 
     res.status(200).json({ code: 'magic_link_sent', memberStatus: 'sent' })
   } catch (err) {
@@ -151,7 +151,7 @@ router.get('/verify', async (req, res) => {
     const sessionId = (sessionResult.rows[0] as { id: string }).id
     console.log('[verify] Session created — id:', sessionId, 'name:', memberName)
 
-    trackEvent('login_success', tokenRow.email)
+    trackEvent(AnalyticsEvent.LOGIN_SUCCESS, tokenRow.email)
 
     // Sync member profile on first login
     try {
@@ -276,7 +276,7 @@ router.post('/logout', requireAuth, async (req, res) => {
     await pool.query('DELETE FROM cpo_connect.sessions WHERE id = $1', [req.user!.id])
     res.clearCookie('cpo_session', { path: '/' })
     res.clearCookie('cpo_has_session', { path: '/' })
-    trackEvent('logout', req.user!.email)
+    trackEvent(AnalyticsEvent.LOGOUT, req.user!.email)
     res.status(200).json({ code: 'logged_out' })
   } catch (err) {
     console.error('POST /logout error:', (err as Error).message)
