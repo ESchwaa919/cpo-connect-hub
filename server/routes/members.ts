@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { requireAuth } from '../middleware/auth.ts'
 import { getDirectory, lookupMember } from '../services/sheets.ts'
 import pool from '../db.ts'
+import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 function gravatarUrl(email: string, size = 80): string {
   const hash = createHash('md5').update(email.trim().toLowerCase()).digest('hex')
@@ -36,6 +37,7 @@ router.get('/profile', requireAuth, async (req, res) => {
       return
     }
 
+    trackEvent(AnalyticsEvent.PROFILE_VIEW, req.user!.email)
     const profile = result.rows[0] as Record<string, unknown>
     if (profile.email) {
       profile.gravatar_url = gravatarUrl(profile.email as string)
@@ -77,6 +79,7 @@ router.put('/profile', requireAuth, async (req, res) => {
       `UPDATE cpo_connect.member_profiles SET ${setClauses.join(', ')} WHERE email = $1 RETURNING ${PROFILE_COLUMNS}`,
       values
     )
+    trackEvent(AnalyticsEvent.PROFILE_UPDATE, req.user!.email, { fields: Object.keys(updates) })
     res.status(200).json(result.rows[0])
   } catch (err) {
     console.error('PUT /profile error:', (err as Error).message)
@@ -163,8 +166,9 @@ const DB_TO_SHEET: [string, string][] = [
 // ---------------------------------------------------------------------------
 // GET /directory — list members (requires auth)
 // ---------------------------------------------------------------------------
-router.get('/directory', requireAuth, async (_req, res) => {
+router.get('/directory', requireAuth, async (req, res) => {
   try {
+    trackEvent(AnalyticsEvent.DIRECTORY_VIEW, req.user!.email)
     const members = await getDirectory()
 
     // Sheet1 uses 'Email' column
