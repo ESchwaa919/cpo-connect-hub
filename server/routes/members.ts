@@ -169,16 +169,17 @@ router.get('/directory', requireAuth, async (_req, res) => {
 
     // Sheet1 uses 'Email' column
     const emails = members
-      .map((m) => m['Email']?.trim())
+      .map((m) => m['Email']?.trim().toLowerCase())
       .filter((e): e is string => !!e)
 
     // Batch-query ALL profiles (for DB overlay + privacy flags)
+    // Use LOWER() for case-insensitive match — profile emails are lowercased at signup
     const profileMap = new Map<string, Record<string, unknown>>()
     if (emails.length > 0) {
       const profileResult = await pool.query(
         `SELECT email, bio, skills, role, current_org, sector, location, phone, photo_url, show_email, show_phone
          FROM cpo_connect.member_profiles
-         WHERE email = ANY($1)`,
+         WHERE LOWER(email) = ANY($1)`,
         [emails]
       )
       for (const row of profileResult.rows) {
