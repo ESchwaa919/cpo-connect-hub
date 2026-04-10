@@ -23,18 +23,14 @@ export const ChatErrorCode = {
   BAD_MONTH: 'bad_month',
   EMBEDDING_UNAVAILABLE: 'embedding_unavailable',
   SYNTHESIS_UNAVAILABLE: 'synthesis_unavailable',
-  INGEST_ERROR: 'ingest_error',
 } as const
 
-/** Match the project-wide 500 body convention (see server/routes/members.ts,
- *  server/routes/auth.ts). Separate from ChatErrorCode since it's the
- *  generic server-error shape, not a WETA-specific failure mode. */
+/** WETA spec (failure-mode contract for /api/chat/ask and peers) uses
+ *  `{ error: 'internal' }` as the 500 response shape — frontend discriminates
+ *  on the `error` field value. */
 function sendServerError(res: Response, route: string, err: unknown): void {
   console.error(`${route} error:`, (err as Error).message)
-  res.status(500).json({
-    error: 'Service temporarily unavailable',
-    code: 'service_error',
-  })
+  res.status(500).json({ error: 'internal' })
 }
 
 function toVectorLiteral(v: number[]): string {
@@ -209,10 +205,13 @@ export async function promptTilesHandler(
 ): Promise<void> {
   try {
     const channel = typeof req.query.channel === 'string' ? req.query.channel : null
+    // When `channel` is omitted, return ALL tiles (cross-channel +
+    // every channel's specific tiles). When a channel is supplied, return
+    // cross-channel tiles + just that channel's specific tiles.
     const result = await pool.query<PromptTileDBRow>(
       `SELECT id::text, scope, title, query, sort_order
        FROM cpo_connect.chat_prompt_tiles
-       WHERE channel IS NULL OR channel = $1
+       WHERE $1::text IS NULL OR channel IS NULL OR channel = $1
        ORDER BY scope, sort_order, id`,
       [channel],
     )
@@ -262,6 +261,11 @@ function isValidIngestMessage(m: IngestMessageBody): boolean {
   if (!Array.isArray(m.embedding) || m.embedding.length !== 768) return false
   if (typeof m.sourceExport !== 'string' || m.sourceExport.length === 0) return false
   if (typeof m.channel !== 'string' || m.channel.length === 0) return false
+  if (typeof m.sentAt !== 'string') return false
+  // Reject unparseable timestamps so Postgres doesn't blow up the whole
+  // run with `invalid input syntax for type timestamptz`. Counted in
+  // skipped instead.
+  if (Number.isNaN(new Date(m.sentAt).getTime())) return false
   return true
 }
 
@@ -417,10 +421,7 @@ export async function ingestHandler(
         )
         .catch(() => {})
     }
-    res.status(500).json({
-      error: 'Service temporarily unavailable',
-      code: ChatErrorCode.INGEST_ERROR,
-    })
+    res.status(500).json({ error: 'internal' })
   }
 }
 
@@ -432,7 +433,7 @@ interface IngestionRunDBRow {
   id: string
   run_started_at: string
   run_completed_at: string | null
-  triggered_by_email: string | null
+  triggered_by: string
   source_months: string[] | null
   messages_ingested: number
   messages_skipped: number
@@ -446,12 +447,35 @@ export async function ingestionRunsHandler(
 ): Promise<void> {
   try {
     // Combined aggregate so we only make two round trips instead of three.
+    //
+    // `triggered_by` is resolved via LEFT JOIN on member_profiles so admin
+    // runs show the operator's display name. Headless script runs use
+    // the synthetic email `script:ingest` which maps to 'Ingestion Script'.
+    // Everything else (unknown emails, legacy rows) falls back to the raw
+    // email for debuggability.
     const [runsResult, aggResult] = await Promise.all([
       pool.query<IngestionRunDBRow>(
-        `SELECT id::text, run_started_at, run_completed_at, triggered_by_email,
-                source_months, messages_ingested, messages_skipped, status, error_message
-         FROM cpo_connect.chat_ingestion_runs
-         ORDER BY run_started_at DESC
+        `SELECT
+           r.id::text,
+           r.run_started_at,
+           r.run_completed_at,
+           COALESCE(
+             mp.name,
+             CASE
+               WHEN r.triggered_by_email = 'script:ingest' THEN 'Ingestion Script'
+               ELSE r.triggered_by_email
+             END,
+             ''
+           ) AS triggered_by,
+           r.source_months,
+           r.messages_ingested,
+           r.messages_skipped,
+           r.status,
+           r.error_message
+         FROM cpo_connect.chat_ingestion_runs r
+         LEFT JOIN cpo_connect.member_profiles mp
+           ON mp.email = r.triggered_by_email
+         ORDER BY r.run_started_at DESC
          LIMIT 50`,
       ),
       pool.query<{ count: string; latest: string | null }>(
@@ -465,7 +489,7 @@ export async function ingestionRunsHandler(
         id: r.id,
         runStartedAt: r.run_started_at,
         runCompletedAt: r.run_completed_at,
-        triggeredBy: r.triggered_by_email ?? '',
+        triggeredBy: r.triggered_by,
         sourceMonths: r.source_months ?? [],
         messagesIngested: r.messages_ingested,
         messagesSkipped: r.messages_skipped,

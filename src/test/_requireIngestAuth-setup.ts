@@ -41,3 +41,12 @@ if (process.env.DATABASE_URL) {
     /* Invalid URL — test's skipIf will catch this downstream */
   }
 }
+
+// server/services/email.ts eagerly constructs `new Resend(RESEND_API_KEY)`
+// at import time, and chat-router-integration.test.ts transitively imports
+// it via createApp → authRouter. Provide a dummy key so the constructor
+// doesn't throw during test module loading. Real Resend calls are not made
+// in any test — the WETA tests only hit the chat routes.
+if (!process.env.RESEND_API_KEY) {
+  process.env.RESEND_API_KEY = 're_test_dummy_not_used'
+}

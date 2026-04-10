@@ -361,26 +361,32 @@ dbDescribe('askHandler', () => {
 // -----------------------------------------------------------------------------
 
 dbDescribe('promptTilesHandler', () => {
-  const testTileQuery = `WETA test tile ${randomUUID()}`
-  let insertedTileId: string | null = null
+  const crossChannelQuery = `WETA test tile xchannel ${randomUUID()}`
+  const aiOnlyQuery = `WETA test tile ai ${randomUUID()}`
+  const generalOnlyQuery = `WETA test tile general ${randomUUID()}`
+  const insertedTileIds: string[] = []
 
   beforeAll(async () => {
-    // Insert a current-scope tile so we can verify the split
-    const result = await pool.query<{ id: string }>(
+    // 1 cross-channel (NULL channel) + 2 channel-specific tiles so we can
+    // verify the filter shape.
+    const rows = await pool.query<{ id: string }>(
       `INSERT INTO cpo_connect.chat_prompt_tiles
          (scope, channel, title, query, sort_order)
-       VALUES ('current', NULL, 'WETA Test Current Tile', $1, 999)
+       VALUES
+         ('current', NULL,      'WETA Current Cross-Channel', $1, 997),
+         ('current', 'ai',      'WETA Current AI Only',       $2, 998),
+         ('current', 'general', 'WETA Current General Only',  $3, 999)
        RETURNING id::text`,
-      [testTileQuery],
+      [crossChannelQuery, aiOnlyQuery, generalOnlyQuery],
     )
-    insertedTileId = result.rows[0].id
+    for (const row of rows.rows) insertedTileIds.push(row.id)
   })
 
   afterAll(async () => {
-    if (insertedTileId !== null) {
+    if (insertedTileIds.length > 0) {
       await pool.query(
-        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE id = $1::bigint`,
-        [insertedTileId],
+        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE id = ANY($1::bigint[])`,
+        [insertedTileIds],
       )
     }
   })
@@ -405,7 +411,38 @@ dbDescribe('promptTilesHandler', () => {
     expect(evergreenTitles).toContain('Burnout & sustainable work')
     expect(evergreenTitles).toContain('PM tool recommendations')
 
-    expect(body.current.find((t) => t.query === testTileQuery)).toBeDefined()
+    expect(body.current.find((t) => t.query === crossChannelQuery)).toBeDefined()
+  })
+
+  it('returns ALL tiles (cross-channel + every channel-specific) when no channel is supplied', async () => {
+    // Per the spec, the default response must include channel-specific
+    // tiles from every channel. An earlier draft collapsed the WHERE to
+    // `channel IS NULL` which dropped them — codex pass 1 BLOCKER.
+    const req = makeReq({ query: {} })
+    const res = makeRes()
+    await promptTilesHandler(req, res)
+
+    const body = bodyOf(res) as {
+      current: Array<{ query: string }>
+    }
+    const queries = body.current.map((t) => t.query)
+    expect(queries).toContain(crossChannelQuery)
+    expect(queries).toContain(aiOnlyQuery)
+    expect(queries).toContain(generalOnlyQuery)
+  })
+
+  it('returns cross-channel + only the requested channel-specific tiles when channel=ai', async () => {
+    const req = makeReq({ query: { channel: 'ai' } })
+    const res = makeRes()
+    await promptTilesHandler(req, res)
+
+    const body = bodyOf(res) as {
+      current: Array<{ query: string }>
+    }
+    const queries = body.current.map((t) => t.query)
+    expect(queries).toContain(crossChannelQuery)
+    expect(queries).toContain(aiOnlyQuery)
+    expect(queries).not.toContain(generalOnlyQuery)
   })
 })
 
@@ -500,6 +537,56 @@ dbDescribe('ingestHandler', () => {
       [body.runId],
     )
     expect(runResult.rows[0]?.status).toBe('success')
+  })
+
+  it('skips rows with a malformed sentAt instead of crashing the run', async () => {
+    const goodText = `weta-sentAt-good-${randomUUID()}`
+    const badText = `weta-sentAt-bad-${randomUUID()}`
+    const req = makeReq({
+      body: {
+        month: testMonth,
+        messages: [
+          {
+            channel: 'ai',
+            authorName: 'Good Timestamp',
+            messageText: goodText,
+            sentAt: '2999-12-15T09:00:00.000Z',
+            sourceExport: testSourceExport,
+            embedding: fixedVector(0.4),
+          },
+          {
+            channel: 'ai',
+            authorName: 'Bad Timestamp',
+            messageText: badText,
+            sentAt: 'not-a-real-date',
+            sourceExport: testSourceExport,
+            embedding: fixedVector(0.4),
+          },
+        ],
+      },
+      user: { id: 's', email: 'script:ingest', name: 'Script' },
+    })
+    const res = makeRes()
+    await ingestHandler(req, res)
+
+    // Must be a successful run (200), not a Postgres timestamptz parse
+    // error bubbling up as a 500.
+    expect(res.status).toHaveBeenCalledWith(200)
+    const body = bodyOf(res) as { ingested: number; skipped: number }
+    expect(body.ingested).toBe(1)
+    expect(body.skipped).toBe(1)
+
+    // Only the good row should be persisted.
+    const goodRow = await pool.query(
+      `SELECT 1 FROM cpo_connect.chat_messages WHERE message_text = $1`,
+      [goodText],
+    )
+    expect(goodRow.rows.length).toBe(1)
+    const badRow = await pool.query(
+      `SELECT 1 FROM cpo_connect.chat_messages WHERE message_text = $1`,
+      [badText],
+    )
+    expect(badRow.rows.length).toBe(0)
   })
 
   it('skips rows with missing sourceExport, wrong embedding size, or missing channel', async () => {
@@ -739,27 +826,73 @@ dbDescribe('ingestHandler', () => {
 
 dbDescribe('ingestionRunsHandler', () => {
   const testMonth = '2999-11'
-  let insertedRunId: string | null = null
+  const adminEmail = `weta-runs-admin-${randomUUID()}@test.local`
+  const adminDisplayName = `WETA Runs Admin ${randomUUID()}`
+  const unknownEmail = `weta-runs-unknown-${randomUUID()}@test.local`
+
+  const insertedRunIds: string[] = []
+  let adminRunId: string | null = null
+  let scriptRunId: string | null = null
+  let unknownRunId: string | null = null
 
   beforeAll(async () => {
-    const result = await pool.query<{ id: string }>(
+    // Admin row in member_profiles for the JOIN fallback
+    await pool.query(
+      `INSERT INTO cpo_connect.member_profiles (email, name)
+       VALUES ($1, $2)
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name`,
+      [adminEmail, adminDisplayName],
+    )
+
+    // Case 1: run triggered by an admin with a profile → joins to display name
+    const adminRun = await pool.query<{ id: string }>(
       `INSERT INTO cpo_connect.chat_ingestion_runs
          (triggered_by_email, source_months, status,
           messages_ingested, messages_skipped, run_completed_at)
-       VALUES ('weta-runs-test@test.local', ARRAY[$1], 'success', 42, 3, NOW())
+       VALUES ($1, ARRAY[$2], 'success', 42, 3, NOW())
+       RETURNING id::text`,
+      [adminEmail, testMonth],
+    )
+    adminRunId = adminRun.rows[0].id
+    insertedRunIds.push(adminRunId)
+
+    // Case 2: run triggered by the headless ingestion script → 'Ingestion Script' literal
+    const scriptRun = await pool.query<{ id: string }>(
+      `INSERT INTO cpo_connect.chat_ingestion_runs
+         (triggered_by_email, source_months, status,
+          messages_ingested, messages_skipped, run_completed_at)
+       VALUES ('script:ingest', ARRAY[$1], 'success', 10, 0, NOW())
        RETURNING id::text`,
       [testMonth],
     )
-    insertedRunId = result.rows[0].id
+    scriptRunId = scriptRun.rows[0].id
+    insertedRunIds.push(scriptRunId)
+
+    // Case 3: run triggered by an email that has no member_profile row →
+    // falls back to the raw email for debuggability
+    const unknownRun = await pool.query<{ id: string }>(
+      `INSERT INTO cpo_connect.chat_ingestion_runs
+         (triggered_by_email, source_months, status,
+          messages_ingested, messages_skipped, run_completed_at)
+       VALUES ($1, ARRAY[$2], 'success', 5, 0, NOW())
+       RETURNING id::text`,
+      [unknownEmail, testMonth],
+    )
+    unknownRunId = unknownRun.rows[0].id
+    insertedRunIds.push(unknownRunId)
   })
 
   afterAll(async () => {
-    if (insertedRunId !== null) {
+    if (insertedRunIds.length > 0) {
       await pool.query(
-        `DELETE FROM cpo_connect.chat_ingestion_runs WHERE id = $1::bigint`,
-        [insertedRunId],
+        `DELETE FROM cpo_connect.chat_ingestion_runs WHERE id = ANY($1::bigint[])`,
+        [insertedRunIds],
       )
     }
+    await pool.query(
+      `DELETE FROM cpo_connect.member_profiles WHERE email = $1`,
+      [adminEmail],
+    )
   })
 
   it('returns runs + corpus totals', async () => {
@@ -780,16 +913,49 @@ dbDescribe('ingestionRunsHandler', () => {
       latestMessageAt: string
     }
 
-    // Our inserted run should be in the (descending-ordered) list
-    const ourRun = body.runs.find((r) => r.id === insertedRunId)
+    const ourRun = body.runs.find((r) => r.id === adminRunId)
     expect(ourRun).toBeDefined()
-    expect(ourRun?.triggeredBy).toBe('weta-runs-test@test.local')
     expect(ourRun?.messagesIngested).toBe(42)
     expect(ourRun?.messagesSkipped).toBe(3)
     expect(ourRun?.status).toBe('success')
 
-    // Corpus totals are non-negative numbers
     expect(typeof body.totalMessages).toBe('number')
     expect(body.totalMessages).toBeGreaterThanOrEqual(0)
+  })
+
+  it('resolves triggeredBy to the member_profiles display name when the email matches', async () => {
+    const req = makeReq()
+    const res = makeRes()
+    await ingestionRunsHandler(req, res)
+
+    const body = bodyOf(res) as {
+      runs: Array<{ id: string; triggeredBy: string }>
+    }
+    const run = body.runs.find((r) => r.id === adminRunId)
+    expect(run?.triggeredBy).toBe(adminDisplayName)
+  })
+
+  it("resolves triggeredBy to 'Ingestion Script' for headless script runs", async () => {
+    const req = makeReq()
+    const res = makeRes()
+    await ingestionRunsHandler(req, res)
+
+    const body = bodyOf(res) as {
+      runs: Array<{ id: string; triggeredBy: string }>
+    }
+    const run = body.runs.find((r) => r.id === scriptRunId)
+    expect(run?.triggeredBy).toBe('Ingestion Script')
+  })
+
+  it('falls back to the raw email when no member_profile row matches', async () => {
+    const req = makeReq()
+    const res = makeRes()
+    await ingestionRunsHandler(req, res)
+
+    const body = bodyOf(res) as {
+      runs: Array<{ id: string; triggeredBy: string }>
+    }
+    const run = body.runs.find((r) => r.id === unknownRunId)
+    expect(run?.triggeredBy).toBe(unknownEmail)
   })
 })
