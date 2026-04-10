@@ -17,11 +17,20 @@ const EDITABLE_FIELDS = [
   'name', 'role', 'current_org', 'sector', 'location',
   'focus_areas', 'areas_of_interest', 'linkedin_url', 'bio', 'skills',
   'phone', 'show_email', 'show_phone',
+  'chat_identification_opted_out', 'chat_query_logging_opted_out',
 ] as const
+
+const BOOLEAN_FIELDS: ReadonlySet<string> = new Set([
+  'show_email',
+  'show_phone',
+  'chat_identification_opted_out',
+  'chat_query_logging_opted_out',
+])
 
 const PROFILE_COLUMNS = `email, name, role, current_org, sector, location,
   focus_areas, areas_of_interest, linkedin_url, bio, skills,
-  phone, photo_url, show_email, show_phone, updated_at`
+  phone, photo_url, show_email, show_phone,
+  chat_identification_opted_out, chat_query_logging_opted_out, updated_at`
 
 const PROFILE_SELECT = `SELECT ${PROFILE_COLUMNS} FROM cpo_connect.member_profiles WHERE email = $1`
 
@@ -58,7 +67,7 @@ router.put('/profile', requireAuth, async (req, res) => {
     for (const field of EDITABLE_FIELDS) {
       if (field in req.body) {
         const val = req.body[field]
-        if (field === 'show_email' || field === 'show_phone') {
+        if (BOOLEAN_FIELDS.has(field)) {
           if (typeof val === 'boolean') updates[field] = val
         } else if (typeof val === 'string') {
           updates[field] = val
