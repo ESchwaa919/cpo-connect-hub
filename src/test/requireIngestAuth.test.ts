@@ -115,39 +115,6 @@ describe('requireIngestAuth', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Pre-populated req.user short-circuit (defensive)
-  // -------------------------------------------------------------------------
-
-  it('delegates to requireAdmin when a cookie session is already set (admin)', async () => {
-    const req = {
-      user: { id: 's', email: 'erik@theaiexpert.ai', name: 'Erik' },
-      cookies: {},
-      header: () => undefined,
-    } as unknown as Request
-    const res = makeRes()
-    const next = vi.fn() as unknown as NextFunction
-
-    await requireIngestAuth(req, res, next)
-
-    expect(next).toHaveBeenCalledTimes(1)
-  })
-
-  it('rejects when pre-populated cookie session is for a non-admin user', async () => {
-    const req = {
-      user: { id: 's', email: 'joe@example.com', name: 'Joe' },
-      cookies: {},
-      header: () => undefined,
-    } as unknown as Request
-    const res = makeRes()
-    const next = vi.fn() as unknown as NextFunction
-
-    await requireIngestAuth(req, res, next)
-
-    expect(res.status).toHaveBeenCalledWith(403)
-    expect(next).not.toHaveBeenCalled()
-  })
-
-  // -------------------------------------------------------------------------
   // Cookie path (fresh session load via requireAuth)
   // -------------------------------------------------------------------------
 

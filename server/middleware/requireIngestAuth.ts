@@ -24,12 +24,16 @@ function safeEqual(a: string, b: string): boolean {
 /** Dual auth for POST /api/admin/chat/ingest:
  *   - Header path: `X-Ingest-Key` matches `INGEST_API_KEY`. Sets `req.user`
  *     to a synthetic SCRIPT_USER for run attribution.
- *   - Cookie path: invokes the existing `requireAuth` (which loads the
- *     cookie session and populates `req.user`), then `requireAdmin` to
- *     enforce `ADMIN_EMAILS`.
+ *   - Cookie path: invokes the existing `requireAuth` to load the session,
+ *     then `requireAdmin` to enforce `ADMIN_EMAILS`.
  *
- *  The middleware must not depend on any upstream auth — it is mounted
- *  directly on the route so the header path can work without a cookie. */
+ *  Mounted directly on the route — no upstream auth is assumed, and none
+ *  must be added (the header path must work without a cookie). Because
+ *  this middleware is the single entry point to the ingest route,
+ *  `req.user` is never pre-populated; we don't carry a defensive
+ *  short-circuit for that case (would be dead code and a theoretical
+ *  privilege-escalation surface if `req.user` ever became writable from
+ *  request input). */
 export async function requireIngestAuth(
   req: Request,
   res: Response,
@@ -48,17 +52,24 @@ export async function requireIngestAuth(
     return
   }
 
-  // Defensive short-circuit: if upstream middleware happens to have set
-  // req.user (e.g. mounted under another requireAuth chain), skip the
-  // cookie load and go straight to the admin check.
-  if (req.user) {
-    requireAdmin(req, res, next)
-    return
-  }
-
-  // Cookie path — invoke requireAuth ourselves, then requireAdmin on success.
-  await requireAuth(req, res, () => {
-    if (res.headersSent) return
-    requireAdmin(req, res, next)
+  // Cookie path — wrap requireAuth + requireAdmin in an explicit Promise so
+  // the outer await reflects the full chain's completion, not just
+  // requireAuth's internal Promise. Defensive against future changes to
+  // requireAuth that might defer its continuation via setImmediate or
+  // microtasks. `resolve()` is idempotent; the `.finally` handles the case
+  // where requireAuth responds with 401 itself and never calls the
+  // continuation.
+  await new Promise<void>((resolve) => {
+    void requireAuth(req, res, () => {
+      if (res.headersSent) {
+        resolve()
+        return
+      }
+      requireAdmin(req, res, (err?: unknown) => {
+        if (err) next(err as Error)
+        else next()
+        resolve()
+      })
+    }).finally(resolve)
   })
 }
