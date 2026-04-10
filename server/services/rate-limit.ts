@@ -5,8 +5,17 @@ interface RateLimitEntry {
   resetTime: number
 }
 
+/** Result of a rate-limit check. `resetTime` is ms-since-epoch when the
+ *  current window ends; callers can compute dynamic `Retry-After` values
+ *  by subtracting `Date.now()`. */
+export interface CheckResult {
+  allowed: boolean
+  remaining: number
+  resetTime: number
+}
+
 interface RateLimiter {
-  check(key: string): { allowed: boolean; remaining: number }
+  check(key: string): CheckResult
   reset(key: string): void
 }
 
@@ -31,23 +40,24 @@ export function createRateLimiter({ windowMs, max }: RateLimiterOptions): RateLi
   // Allow the process to exit without waiting for the interval
   cleanupInterval.unref()
 
-  function check(key: string): { allowed: boolean; remaining: number } {
+  function check(key: string): CheckResult {
     const now = Date.now()
     const entry = store.get(key)
 
     // If no entry or window has expired, start a fresh window
     if (!entry || now >= entry.resetTime) {
-      store.set(key, { count: 1, resetTime: now + windowMs })
-      return { allowed: true, remaining: max - 1 }
+      const resetTime = now + windowMs
+      store.set(key, { count: 1, resetTime })
+      return { allowed: true, remaining: max - 1, resetTime }
     }
 
     // Window is still active — check BEFORE incrementing
     if (entry.count >= max) {
-      return { allowed: false, remaining: 0 }
+      return { allowed: false, remaining: 0, resetTime: entry.resetTime }
     }
 
     entry.count += 1
-    return { allowed: true, remaining: max - entry.count }
+    return { allowed: true, remaining: max - entry.count, resetTime: entry.resetTime }
   }
 
   function reset(key: string): void {
