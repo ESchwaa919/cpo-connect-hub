@@ -95,6 +95,17 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
     throw new SynthesisUnavailableError((err as Error).message)
   }
 
+  // Only 'end_turn' is a clean natural completion. Anything else —
+  // 'max_tokens' truncation, 'refusal', 'content_filter' safety stop,
+  // 'stop_sequence', 'tool_use', 'pause_turn', and any future Anthropic
+  // additions — must surface as synthesis failure so the route handler
+  // returns 503 instead of leaking partial/refusal text to the user.
+  if (response.stop_reason !== 'end_turn') {
+    throw new SynthesisUnavailableError(
+      `Claude returned non-success stop_reason: ${response.stop_reason}`,
+    )
+  }
+
   const answer = extractText(response.content)
   if (!answer) {
     throw new SynthesisUnavailableError('no text block in response')

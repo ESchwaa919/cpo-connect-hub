@@ -27,6 +27,18 @@ const hourLimiter = createRateLimiter({
  *  retryAfterSec }` with a `Retry-After` header. Missing `req.user`
  *  returns 401 so misconfigured chains fail loud instead of silently
  *  bucketing everything under a single key. */
+/** Compute seconds remaining until the window resets, clamped to ≥1 so
+ *  clients never see a 0/negative Retry-After. */
+function secondsUntil(resetTime: number): number {
+  return Math.max(1, Math.ceil((resetTime - Date.now()) / 1000))
+}
+
+function reject(res: Response, resetTime: number): void {
+  const retryAfterSec = secondsUntil(resetTime)
+  res.setHeader('Retry-After', String(retryAfterSec))
+  res.status(429).json({ error: 'rate_limited', retryAfterSec })
+}
+
 export function chatAskRateLimit(
   req: Request,
   res: Response,
@@ -43,15 +55,13 @@ export function chatAskRateLimit(
   // existing server/routes/auth.ts uses the same sequential pattern.)
   const minuteCheck = minuteLimiter.check(`ask:min:${email}`)
   if (!minuteCheck.allowed) {
-    res.setHeader('Retry-After', String(60))
-    res.status(429).json({ error: 'rate_limited', retryAfterSec: 60 })
+    reject(res, minuteCheck.resetTime)
     return
   }
 
   const hourCheck = hourLimiter.check(`ask:hour:${email}`)
   if (!hourCheck.allowed) {
-    res.setHeader('Retry-After', String(60 * 60))
-    res.status(429).json({ error: 'rate_limited', retryAfterSec: 60 * 60 })
+    reject(res, hourCheck.resetTime)
     return
   }
 

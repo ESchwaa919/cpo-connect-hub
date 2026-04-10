@@ -18,6 +18,7 @@ describe('chatSynthesis', () => {
     createMock.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'People are excited about Claude Code [1].' }],
       model: 'claude-sonnet-4-5',
+      stop_reason: 'end_turn',
     })
 
     const { synthesizeAnswer } = await import('../../server/services/chatSynthesis')
@@ -68,6 +69,7 @@ describe('chatSynthesis', () => {
     createMock.mockResolvedValueOnce({
       content: [{ type: 'text', text: "I couldn't find anything." }],
       model: 'claude-sonnet-4-5',
+      stop_reason: 'end_turn',
     })
 
     const { synthesizeAnswer } = await import('../../server/services/chatSynthesis')
@@ -82,6 +84,7 @@ describe('chatSynthesis', () => {
     createMock.mockResolvedValueOnce({
       content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }],
       model: 'claude-sonnet-4-5',
+      stop_reason: 'end_turn',
     })
 
     const { synthesizeAnswer, SynthesisUnavailableError } = await import(
@@ -91,4 +94,32 @@ describe('chatSynthesis', () => {
       synthesizeAnswer({ query: 'q', sources: [] }),
     ).rejects.toBeInstanceOf(SynthesisUnavailableError)
   })
+
+  // Anything other than 'end_turn' is a refusal, truncation, or anomaly —
+  // must surface as synthesis failure (spec 503 response) instead of
+  // leaking partial text to the user. See codex CLI pass 3.
+  it.each([
+    ['max_tokens'],
+    ['refusal'],
+    ['content_filter'],
+    ['stop_sequence'],
+    ['tool_use'],
+    ['pause_turn'],
+  ])(
+    'throws SynthesisUnavailableError when Claude stop_reason is %s',
+    async (stopReason) => {
+      createMock.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'partial or refusal text' }],
+        model: 'claude-sonnet-4-5',
+        stop_reason: stopReason,
+      })
+
+      const { synthesizeAnswer, SynthesisUnavailableError } = await import(
+        '../../server/services/chatSynthesis'
+      )
+      await expect(
+        synthesizeAnswer({ query: 'q', sources: [] }),
+      ).rejects.toBeInstanceOf(SynthesisUnavailableError)
+    },
+  )
 })

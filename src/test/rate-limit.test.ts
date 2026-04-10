@@ -67,4 +67,35 @@ describe('createRateLimiter', () => {
     const third = limiter.check('user-4')
     expect(third.remaining).toBe(2)
   })
+
+  it('returns resetTime = now + windowMs on fresh windows and carries it across checks', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+
+    const limiter = createRateLimiter({ windowMs: 60_000, max: 3 })
+
+    // Fresh window starts at t=0 → resetTime = 60000
+    const first = limiter.check('user-5')
+    expect(first.resetTime).toBe(60_000)
+
+    // Subsequent checks within the same window keep the same resetTime
+    vi.advanceTimersByTime(10_000)
+    const second = limiter.check('user-5')
+    expect(second.resetTime).toBe(60_000)
+
+    // Over-limit returns the existing resetTime too
+    const third = limiter.check('user-5')
+    expect(third.resetTime).toBe(60_000)
+    const overLimit = limiter.check('user-5')
+    expect(overLimit.allowed).toBe(false)
+    expect(overLimit.resetTime).toBe(60_000)
+
+    // After the window expires, a new entry gets a fresh resetTime
+    vi.advanceTimersByTime(60_000) // t = 70_000, past resetTime
+    const afterReset = limiter.check('user-5')
+    expect(afterReset.allowed).toBe(true)
+    expect(afterReset.resetTime).toBe(70_000 + 60_000)
+
+    vi.useRealTimers()
+  })
 })
