@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import { runMigrations } from './server/db.ts'
 import authRouter from './server/routes/auth.ts'
 import membersRouter from './server/routes/members.ts'
+import { chatMemberRouter, chatAdminRouter } from './server/routes/chat.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -14,7 +15,21 @@ const PORT = process.env.PORT || 3001
 
 // Middleware
 app.use(cookieParser())
-app.use(express.json())
+
+// The WETA monthly-ingest endpoint parses its body inside the admin router
+// (after requireIngestAuth) with a much higher limit. Skip it here so the
+// default ~100KB limit doesn't reject legitimate 5-15MB payloads, and so
+// unauthenticated requests can't force pre-auth body-buffering of large
+// bodies. Every other route uses the default parser.
+const INGEST_PATH = '/api/admin/chat/ingest'
+const defaultJsonParser = express.json()
+app.use((req, res, next) => {
+  if (req.path === INGEST_PATH) {
+    next()
+    return
+  }
+  defaultJsonParser(req, res, next)
+})
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -24,6 +39,12 @@ app.get('/health', (_req, res) => {
 // API routes
 app.use('/api/auth', authRouter)
 app.use('/api/members', membersRouter)
+
+// WETA chat endpoints. The ingest route's 50MB body parser is mounted
+// INSIDE chatAdminRouter, after requireIngestAuth, so unauthenticated
+// requests can't force pre-auth buffering of large bodies.
+app.use('/api/chat', chatMemberRouter)
+app.use('/api/admin/chat', chatAdminRouter)
 
 // Service worker must not be cached by the browser
 app.get('/sw.js', (_req, res, next) => {
