@@ -64,4 +64,23 @@ describe('matchAuthor', () => {
   it('returns null for the empty string', () => {
     expect(matchAuthor('', profiles)).toBeNull()
   })
+
+  it('returns null when the profiles array contains a duplicate of the match', () => {
+    // Defensive: if the DB query that feeds matchAuthor ever returns the
+    // same email twice (schema regression, join bug), we'd rather return
+    // null than accidentally-attribute.
+    const dup = [
+      { email: 'erik@example.com', name: 'Erik Schwartz' },
+      { email: 'erik@example.com', name: 'Erik Schwartz' },
+    ]
+    expect(matchAuthor('Erik Schwartz', dup)).toBeNull()
+  })
+
+  it('ignores profiles with emoji-only names that normalize to empty', () => {
+    const withEmojiProfile = [
+      { email: 'erik@example.com', name: 'Erik Schwartz' },
+      { email: 'emoji@example.com', name: '🚀🔥' },
+    ]
+    expect(matchAuthor('Erik Schwartz', withEmojiProfile)).toBe('erik@example.com')
+  })
 })

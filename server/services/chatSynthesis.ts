@@ -39,6 +39,9 @@ Rules:
 - If the sources don't contain enough info, say so plainly. Don't fabricate.
 - Names marked "A member" have opted out of attribution — refer to them that way and don't guess who they are.`
 
+// Rotating ANTHROPIC_API_KEY requires a process restart — the client is
+// cached for the lifetime of the process and does not re-read env on
+// subsequent calls.
 let client: Anthropic | null = null
 
 function getClient(): Anthropic {
@@ -92,5 +95,9 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
     throw new SynthesisUnavailableError((err as Error).message)
   }
 
-  return { answer: extractText(response.content), model: response.model }
+  const answer = extractText(response.content)
+  if (!answer) {
+    throw new SynthesisUnavailableError('no text block in response')
+  }
+  return { answer, model: response.model }
 }

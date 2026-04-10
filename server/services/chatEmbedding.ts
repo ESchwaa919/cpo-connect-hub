@@ -16,6 +16,8 @@ export class EmbeddingUnavailableError extends Error {
   }
 }
 
+// Rotating GEMINI_API_KEY requires a process restart — the client is cached
+// for the lifetime of the process and does not re-read env on subsequent calls.
 let client: GoogleGenAI | null = null
 
 function getClient(): GoogleGenAI {

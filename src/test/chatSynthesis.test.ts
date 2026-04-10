@@ -77,4 +77,18 @@ describe('chatSynthesis', () => {
     const payload = createMock.mock.calls[0][0]
     expect(payload.messages[0].content).toContain('(no sources retrieved)')
   })
+
+  it('throws SynthesisUnavailableError when the response has no text block', async () => {
+    createMock.mockResolvedValueOnce({
+      content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }],
+      model: 'claude-sonnet-4-5',
+    })
+
+    const { synthesizeAnswer, SynthesisUnavailableError } = await import(
+      '../../server/services/chatSynthesis'
+    )
+    await expect(
+      synthesizeAnswer({ query: 'q', sources: [] }),
+    ).rejects.toBeInstanceOf(SynthesisUnavailableError)
+  })
 })
