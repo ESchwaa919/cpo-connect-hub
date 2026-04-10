@@ -37,6 +37,12 @@ function toVectorLiteral(v: number[]): string {
   return `[${v.join(',')}]`
 }
 
+function isValidDateString(s: unknown): s is string {
+  if (typeof s !== 'string') return false
+  const parsed = Date.parse(s)
+  return !Number.isNaN(parsed)
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/chat/ask — synthesized answer with cited sources
 // ---------------------------------------------------------------------------
@@ -62,13 +68,29 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
     res.status(400).json({ error: ChatErrorCode.BAD_QUERY })
     return
   }
+
+  // Validate date filters up front so malformed strings return a 400
+  // bad_query instead of bubbling up as a Postgres `invalid input syntax
+  // for type timestamptz` inside the 500 path. Only strings are accepted;
+  // undefined is allowed (filter omitted).
+  const rawDateFrom = req.body?.dateFrom
+  const rawDateTo = req.body?.dateTo
+  if (rawDateFrom !== undefined && !isValidDateString(rawDateFrom)) {
+    res.status(400).json({ error: ChatErrorCode.BAD_QUERY })
+    return
+  }
+  if (rawDateTo !== undefined && !isValidDateString(rawDateTo)) {
+    res.status(400).json({ error: ChatErrorCode.BAD_QUERY })
+    return
+  }
+
   const limit = Math.min(
     Math.max(typeof req.body?.limit === 'number' ? req.body.limit : 12, 1),
     30,
   )
   const channel = typeof req.body?.channel === 'string' ? req.body.channel : null
-  const dateFrom = typeof req.body?.dateFrom === 'string' ? req.body.dateFrom : null
-  const dateTo = typeof req.body?.dateTo === 'string' ? req.body.dateTo : null
+  const dateFrom = typeof rawDateFrom === 'string' ? rawDateFrom : null
+  const dateTo = typeof rawDateTo === 'string' ? rawDateTo : null
 
   // Fire-and-forget privacy-aware event logging. Never awaited — must not
   // block the hot path. Errors are logged but not surfaced to the caller.
@@ -366,7 +388,18 @@ export async function ingestHandler(
     const messages = Array.isArray(req.body?.messages)
       ? (req.body.messages as IngestMessageBody[])
       : []
-    const promptTiles = Array.isArray(req.body?.promptTiles)
+
+    // Detect presence of the promptTiles field vs. absence. An empty array
+    // is a legitimate "clear all current tiles" signal; field omitted is
+    // "don't touch tiles at all" (back-compat for runs that don't manage
+    // tiles). `'promptTiles' in req.body` distinguishes the two cases
+    // where `.length > 0` would conflate them.
+    const promptTilesProvided =
+      req.body != null &&
+      typeof req.body === 'object' &&
+      'promptTiles' in req.body &&
+      Array.isArray(req.body.promptTiles)
+    const promptTiles: IngestPromptTileBody[] = promptTilesProvided
       ? (req.body.promptTiles as IngestPromptTileBody[])
       : []
 
@@ -387,7 +420,7 @@ export async function ingestHandler(
     // one aggregate count matches the spec's ingest response shape.
     const skipped = messages.length - ingested
 
-    if (promptTiles.length > 0) {
+    if (promptTilesProvided) {
       await refreshCurrentPromptTiles(promptTiles)
     }
 

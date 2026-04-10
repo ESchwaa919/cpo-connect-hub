@@ -172,6 +172,57 @@ dbDescribe('askHandler', () => {
     expect(res.status).toHaveBeenCalledWith(400)
   })
 
+  it('returns 400 bad_query on malformed dateFrom', async () => {
+    const req = makeReq({
+      body: { query: 'hi', dateFrom: 'not-a-date' },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(bodyOf(res)).toMatchObject({ error: 'bad_query' })
+    // Must short-circuit before calling the SDK wrappers.
+    expect(mocks.embedQueryMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 bad_query on malformed dateTo', async () => {
+    const req = makeReq({
+      body: { query: 'hi', dateTo: 'banana' },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(bodyOf(res)).toMatchObject({ error: 'bad_query' })
+    expect(mocks.embedQueryMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts well-formed ISO dateFrom/dateTo on the happy path', async () => {
+    mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'ok',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const req = makeReq({
+      body: {
+        query: 'hi',
+        channel: 'ai',
+        dateFrom: '2026-01-01',
+        dateTo: '2026-12-31',
+      },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+
+    // Either 200 (rows found) or 200 with empty-state shape — both are
+    // valid outcomes for the filter window. The critical assertion is
+    // that we did NOT short-circuit with a 400.
+    expect(res.status).toHaveBeenCalledWith(200)
+    expect(mocks.embedQueryMock).toHaveBeenCalledTimes(1)
+  })
+
   it('returns 503 embedding_unavailable with Retry-After header on embed error', async () => {
     mocks.embedQueryMock.mockRejectedValueOnce(
       new mocks.EmbeddingUnavailableError('gemini 429'),
@@ -735,6 +786,146 @@ dbDescribe('ingestHandler', () => {
     } finally {
       // Defensive: if the transaction didn't roll back perfectly, restore
       // the snapshot. No-op when the test passed as expected.
+      await pool.query(
+        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE scope = 'current'`,
+      )
+      for (const row of snapshot.rows) {
+        await pool.query(
+          `INSERT INTO cpo_connect.chat_prompt_tiles
+             (scope, channel, title, query, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [row.scope, row.channel, row.title, row.query, row.sort_order],
+        )
+      }
+    }
+  })
+
+  it('clears all current-scope tiles when promptTiles: [] is explicitly supplied', async () => {
+    // Snapshot existing current tiles so we can restore at the end.
+    const snapshot = await pool.query<{
+      scope: string
+      channel: string | null
+      title: string
+      query: string
+      sort_order: number
+    }>(
+      `SELECT scope, channel, title, query, sort_order
+       FROM cpo_connect.chat_prompt_tiles
+       WHERE scope = 'current'
+       ORDER BY sort_order, id`,
+    )
+
+    try {
+      // Pre-seed 3 current-scope tiles so we have something to delete.
+      await pool.query(
+        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE scope = 'current'`,
+      )
+      await pool.query(
+        `INSERT INTO cpo_connect.chat_prompt_tiles
+           (scope, channel, title, query, sort_order)
+         VALUES
+           ('current', NULL, 'WETA Clear-Test A', $1, 1),
+           ('current', NULL, 'WETA Clear-Test B', $2, 2),
+           ('current', NULL, 'WETA Clear-Test C', $3, 3)`,
+        [
+          `weta-clear-a-${randomUUID()}`,
+          `weta-clear-b-${randomUUID()}`,
+          `weta-clear-c-${randomUUID()}`,
+        ],
+      )
+
+      // Sanity — 3 rows inserted
+      const before = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM cpo_connect.chat_prompt_tiles
+         WHERE scope = 'current'`,
+      )
+      expect(Number(before.rows[0].count)).toBe(3)
+
+      // Ingest with an explicitly-empty promptTiles array
+      const req = makeReq({
+        body: {
+          month: testMonth,
+          messages: [],
+          promptTiles: [],
+        },
+        user: { id: 's', email: 'script:ingest', name: 'Script' },
+      })
+      const res = makeRes()
+      await ingestHandler(req, res)
+      expect(res.status).toHaveBeenCalledWith(200)
+
+      // All 3 current-scope rows should be gone
+      const after = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM cpo_connect.chat_prompt_tiles
+         WHERE scope = 'current'`,
+      )
+      expect(Number(after.rows[0].count)).toBe(0)
+    } finally {
+      // Restore whatever was there before the test ran
+      await pool.query(
+        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE scope = 'current'`,
+      )
+      for (const row of snapshot.rows) {
+        await pool.query(
+          `INSERT INTO cpo_connect.chat_prompt_tiles
+             (scope, channel, title, query, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [row.scope, row.channel, row.title, row.query, row.sort_order],
+        )
+      }
+    }
+  })
+
+  it('does not touch current-scope tiles when promptTiles field is omitted entirely', async () => {
+    const snapshot = await pool.query<{
+      scope: string
+      channel: string | null
+      title: string
+      query: string
+      sort_order: number
+    }>(
+      `SELECT scope, channel, title, query, sort_order
+       FROM cpo_connect.chat_prompt_tiles
+       WHERE scope = 'current'
+       ORDER BY sort_order, id`,
+    )
+
+    const testTileQueryA = `weta-omit-a-${randomUUID()}`
+    const testTileQueryB = `weta-omit-b-${randomUUID()}`
+    try {
+      await pool.query(
+        `DELETE FROM cpo_connect.chat_prompt_tiles WHERE scope = 'current'`,
+      )
+      await pool.query(
+        `INSERT INTO cpo_connect.chat_prompt_tiles
+           (scope, channel, title, query, sort_order)
+         VALUES
+           ('current', NULL, 'WETA Omit-Test A', $1, 1),
+           ('current', NULL, 'WETA Omit-Test B', $2, 2)`,
+        [testTileQueryA, testTileQueryB],
+      )
+
+      // Ingest without the promptTiles field at all
+      const req = makeReq({
+        body: {
+          month: testMonth,
+          messages: [],
+        },
+        user: { id: 's', email: 'script:ingest', name: 'Script' },
+      })
+      const res = makeRes()
+      await ingestHandler(req, res)
+      expect(res.status).toHaveBeenCalledWith(200)
+
+      // Both rows still present — omitted field is a no-op, not a clear
+      const queries = await pool.query<{ query: string }>(
+        `SELECT query FROM cpo_connect.chat_prompt_tiles
+         WHERE scope = 'current'`,
+      )
+      const queryValues = queries.rows.map((r) => r.query)
+      expect(queryValues).toContain(testTileQueryA)
+      expect(queryValues).toContain(testTileQueryB)
+    } finally {
       await pool.query(
         `DELETE FROM cpo_connect.chat_prompt_tiles WHERE scope = 'current'`,
       )
