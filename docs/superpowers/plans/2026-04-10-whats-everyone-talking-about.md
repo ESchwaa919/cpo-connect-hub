@@ -10,32 +10,75 @@
 
 ---
 
-## Ambiguities flagged for Erik
+## Design decisions locked in from the spec update
 
-These should be resolved before/during execution. I am not editing the spec; I have made pragmatic choices below and noted them.
+These were ambiguities in the original spec that are now resolved by the
+codex review feedback folded into
+`docs/specs/2026-04-10-whats-everyone-talking-about.md`. They are listed
+here so the executor doesn't have to re-derive them from the spec diff.
 
-1. **`member_profiles` primary key is `email` (TEXT), not UUID.** The spec references `author_profile_id UUID REFERENCES cpo_connect.member_profiles(id)` and `triggered_by_profile_id UUID`. Neither column exists. **Pragmatic choice for the plan:** use `author_email TEXT` (nullable, no FK) and `triggered_by_email TEXT` (nullable) instead. Simpler, matches existing PK, avoids a schema-shifting migration. Flag to Erik for confirmation.
-2. **Reference HTML archive access.** Spec says `ChatInsights.tsx` should become a "Monthly Summaries" archive that links to `reference/chat-analysis-*.html`. Those files are not currently served by Express or Vite. **Pragmatic choice:** add an auth-gated Express static mount at `/reference` so members can view the archive files after login. Consistent with the "members-only" principle.
-3. **Initial prompt tiles content.** Spec doesn't specify the evergreen tile copy. **Pragmatic choice:** seed 4 evergreen tiles via migration 009 (see Task 2). Erik can edit them via SQL or a future admin UI.
-4. **`req.user.id` is a session UUID, not a profile identifier.** Existing middleware sets `req.user = { id: session.id, email, name }`. The plan uses `req.user.email` everywhere a profile identifier is needed.
-5. **Phone-number senders never match a profile.** Per the March 2026 chat export, ~15 members render as `+44 7850 325835` etc because the export device lacks contacts for them. The author reconciliation service must handle no-match cleanly (leave `author_email` NULL, still store the raw `author_name`).
+1. **`member_profiles` primary key is `email` (TEXT), not UUID.** WETA
+   tables use `author_email TEXT` (nullable, no hard FK — phone-number-only
+   senders from WhatsApp exports won't match any profile) and
+   `triggered_by_email TEXT` instead of the UUID fields in the original draft.
+2. **Reference HTML archive** (`/reference/chat-analysis-*.html`) is
+   served via an auth-gated Express static mount in `server.ts`. See
+   Task 12.
+3. **Evergreen prompt tiles** — 4 tiles seeded via migration 009 (see
+   Task 2). Erik can edit via SQL or a future admin UI.
+4. **`req.user.id` is a session UUID**, not a profile identifier. The
+   plan uses `req.user.email` everywhere a profile identifier is needed.
+5. **Phone-number senders** stored verbatim with `author_email = NULL`.
+   `authorReconciliation.matchAuthor` returns `null` for any name that
+   starts with `+` (see Task 6).
+6. **Migration idempotency** — every DDL uses `IF NOT EXISTS` because
+   `server/db.ts:runMigrations` replays every `.sql` file on every boot.
+7. **Dual auth on `POST /api/admin/chat/ingest`** — either an admin
+   session cookie (cookie path) or a valid `X-Ingest-Key` header matching
+   `INGEST_API_KEY` via `crypto.timingSafeEqual` (headless path). The
+   ingest-whatsapp.ts script uses the header path. The
+   `requireIngestAuth` middleware (introduced in Task 10) handles both
+   paths in one place.
+8. **Per-route body limit** — `POST /api/admin/chat/ingest` mounts its own
+   `express.json({ limit: '50mb' })`. The global body limit stays at the
+   default ~100KB. A single month of ingestion runs 5–15MB.
+9. **Per-member rate limit on `POST /api/chat/ask`** — 10/min and 100/hr
+   keyed on `req.user.email`, using the existing `createRateLimiter`
+   helper. 429 returns `{error: 'rate_limited', retryAfterSec}` with a
+   standard `Retry-After` header.
+10. **Privacy: two independent opt-outs.** `chat_identification_opted_out`
+    hides the member's name on source cards. `chat_query_logging_opted_out`
+    redacts the member's questions in the `events` table (logs char count
+    + channel filter only, no text). Both default to opted in. Profile
+    page has two toggles; chat page shows a one-line disclosure.
+11. **Failure modes on `POST /api/chat/ask`** are mapped to specific
+    status codes (see Task 9 — formerly Task 8). No happy-path-only
+    implementations.
+12. **Frontend file paths corrected** — router is in `src/App.tsx` (not
+    `src/pages/App.tsx`); nav links live in `src/components/Navbar.tsx`
+    (not `src/components/members/MembersLayout.tsx`).
+13. **`src/constants/chatChannels.ts`** is scoped to WETA-searchable
+    channels only. The marketing-page `ChannelsSection.tsx` stays
+    untouched for Phase 1.
 
 ---
 
 ## File map
 
 **New backend files:**
-- `server/migrations/009-chat-tables.sql` — four new tables, indexes, evergreen tile seed
-- `server/migrations/010-profile-chat-opt-out.sql` — new column on member_profiles
+- `server/migrations/009-chat-tables.sql` — four new tables, indexes, evergreen tile seed (all DDL idempotent)
+- `server/migrations/010-profile-chat-opt-out.sql` — **two** new columns on `member_profiles` (identification + query-logging opt-outs)
 - `server/services/chatEmbedding.ts` — Gemini query embedding wrapper
-- `server/services/chatSynthesis.ts` — Claude synthesis wrapper
+- `server/services/chatSynthesis.ts` — Claude synthesis wrapper (20s timeout)
 - `server/services/authorReconciliation.ts` — fuzzy match WhatsApp names to profiles
-- `server/middleware/requireAdmin.ts` — admin email check middleware
-- `server/routes/chat.ts` — all four chat endpoints
+- `server/middleware/requireAdmin.ts` — admin email check middleware (cookie path)
+- `server/middleware/requireIngestAuth.ts` — dual auth (cookie OR `X-Ingest-Key` header via `timingSafeEqual`)
+- `server/routes/chat.ts` — all four chat endpoints, per-route body limit on ingest
 - `src/test/chatEmbedding.test.ts`
 - `src/test/chatSynthesis.test.ts`
 - `src/test/authorReconciliation.test.ts`
 - `src/test/requireAdmin.test.ts`
+- `src/test/requireIngestAuth.test.ts`
 
 **Modified backend files:**
 - `server.ts` — mount chat router, mount `/reference` static under auth
@@ -71,7 +114,8 @@ These should be resolved before/during execution. I am not editing the spec; I h
 - `src/pages/members/ChatInsights.tsx` — replaced by `MonthlySummaries.tsx` (or kept as a thin re-export, per Task 28)
 
 **Deployment / ops:**
-- Render env vars: `ANTHROPIC_API_KEY`, `ADMIN_EMAILS` (`GEMINI_API_KEY` already set per Erik)
+- Render env vars: `ANTHROPIC_API_KEY`, `ADMIN_EMAILS`, `INGEST_API_KEY` (`GEMINI_API_KEY` already set per Erik)
+- Local gitignored file: `.env.ingest` — holds `INGEST_API_KEY` for the ingest script (copy of the Render value)
 
 ---
 
@@ -243,10 +287,15 @@ git commit -m "feat(weta): add chat tables migration with pgvector indexes and e
 
 ---
 
-### Task 3: Migration 010 — profile opt-out column
+### Task 3: Migration 010 — profile opt-out columns
 
 **Files:**
 - Create: `server/migrations/010-profile-chat-opt-out.sql`
+
+Two separate columns: one for hiding the member's name on source cards
+(`chat_identification_opted_out`), one for redacting the member's raw
+question text in the events table (`chat_query_logging_opted_out`). Both
+default to `false` (opted in).
 
 - [ ] **Step 1: Write the migration SQL**
 
@@ -255,6 +304,9 @@ Create `server/migrations/010-profile-chat-opt-out.sql` with:
 ```sql
 ALTER TABLE cpo_connect.member_profiles
   ADD COLUMN IF NOT EXISTS chat_identification_opted_out BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE cpo_connect.member_profiles
+  ADD COLUMN IF NOT EXISTS chat_query_logging_opted_out BOOLEAN NOT NULL DEFAULT false;
 ```
 
 - [ ] **Step 2: Apply migration locally**
@@ -267,20 +319,22 @@ npm run dev:server
 
 Expected: no errors.
 
-- [ ] **Step 3: Verify the column**
+- [ ] **Step 3: Verify the columns**
 
 Run:
 ```bash
-psql "$DATABASE_URL" -c "\d cpo_connect.member_profiles" | grep chat_identification
+psql "$DATABASE_URL" -c "\d cpo_connect.member_profiles" | grep chat_
 ```
 
-Expected: line showing `chat_identification_opted_out | boolean | not null default false`.
+Expected: two lines:
+- `chat_identification_opted_out | boolean | not null default false`
+- `chat_query_logging_opted_out | boolean | not null default false`
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add server/migrations/010-profile-chat-opt-out.sql
-git commit -m "feat(weta): add chat_identification_opted_out column on member_profiles"
+git commit -m "feat(weta): add chat identification + query logging opt-out columns"
 ```
 
 ---
@@ -367,6 +421,14 @@ const MODEL = 'gemini-embedding-2-preview'
 const QUERY_INSTRUCTION =
   'Represent this search query for retrieving relevant community chat messages.'
 
+/** Error class the ask endpoint maps to 503 embedding_unavailable. */
+export class EmbeddingUnavailableError extends Error {
+  readonly code = 'embedding_unavailable' as const
+  constructor(cause: string) {
+    super(`embedding_unavailable: ${cause}`)
+  }
+}
+
 let client: GoogleGenAI | null = null
 
 function getClient(): GoogleGenAI {
@@ -382,15 +444,20 @@ function getClient(): GoogleGenAI {
 
 export async function embedQuery(query: string): Promise<number[]> {
   const c = getClient()
-  const response = await c.models.embedContent({
-    model: MODEL,
-    contents: `${QUERY_INSTRUCTION}\n\n${query}`,
-    config: { outputDimensionality: 768 },
-  })
+  let response
+  try {
+    response = await c.models.embedContent({
+      model: MODEL,
+      contents: `${QUERY_INSTRUCTION}\n\n${query}`,
+      config: { outputDimensionality: 768 },
+    })
+  } catch (err) {
+    throw new EmbeddingUnavailableError((err as Error).message)
+  }
 
   const vec = response.embeddings?.[0]?.values
   if (!vec || vec.length === 0) {
-    throw new Error('Gemini embedContent: no embedding returned')
+    throw new EmbeddingUnavailableError('no embedding returned')
   }
   return vec
 }
@@ -562,16 +629,34 @@ function formatSources(sources: SynthesisSource[]): string {
     .join('\n\n')
 }
 
+const CLAUDE_TIMEOUT_MS = 20_000
+
+/** Error class the ask endpoint maps to 503 synthesis_unavailable. */
+export class SynthesisUnavailableError extends Error {
+  readonly code = 'synthesis_unavailable' as const
+  constructor(cause: string) {
+    super(`synthesis_unavailable: ${cause}`)
+  }
+}
+
 export async function synthesizeAnswer(input: SynthesisInput): Promise<SynthesisOutput> {
   const c = getClient()
   const userMessage = `Question: ${input.query}\n\nSources:\n${formatSources(input.sources)}\n\nWrite a short synthesized answer with [N] citation markers.`
 
-  const response = await c.messages.create({
-    model: MODEL,
-    max_tokens: 600,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  })
+  let response
+  try {
+    response = await c.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 600,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMessage }],
+      },
+      { timeout: CLAUDE_TIMEOUT_MS },
+    )
+  } catch (err) {
+    throw new SynthesisUnavailableError((err as Error).message)
+  }
 
   const textBlock = response.content.find((b) => b.type === 'text') as
     | { type: 'text'; text: string }
@@ -581,6 +666,9 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
   return { answer, model: response.model }
 }
 ```
+
+The ask endpoint (Task 9) catches `SynthesisUnavailableError` and
+responds with `503 {error: 'synthesis_unavailable'}`.
 
 - [ ] **Step 4: Run test, verify it passes**
 
@@ -909,7 +997,7 @@ git commit -m "feat(weta): add requireAdmin middleware with ADMIN_EMAILS env che
 - Create: `server/routes/chat.ts`
 - Modify: `server/services/analytics.ts`
 
-- [ ] **Step 1: Add `CHAT_QUERY` to analytics event names**
+- [ ] **Step 1: Add `CHAT_QUERY` + `CHAT_QUERY_REDACTED` to analytics event names**
 
 Edit `server/services/analytics.ts`. Change the `AnalyticsEvent` const to:
 
@@ -921,11 +1009,12 @@ export const AnalyticsEvent = {
   PROFILE_VIEW: 'profile_view',
   PROFILE_UPDATE: 'profile_update',
   DIRECTORY_VIEW: 'directory_view',
-  CHAT_QUERY: 'chat_query',
+  CHAT_QUERY: 'chat_query',                    // full text logged (default)
+  CHAT_QUERY_REDACTED: 'chat_query_redacted',  // opted out — metadata only
 } as const
 ```
 
-- [ ] **Step 2: Create the chat router with `POST /ask`**
+- [ ] **Step 2: Create the chat router with `POST /ask`, rate limit, failure mapping, privacy-aware logging**
 
 Create `server/routes/chat.ts`:
 
@@ -933,12 +1022,25 @@ Create `server/routes/chat.ts`:
 import { Router } from 'express'
 import pool from '../db.ts'
 import { requireAuth } from '../middleware/auth.ts'
-import { requireAdmin } from '../middleware/requireAdmin.ts'
-import { embedQuery } from '../services/chatEmbedding.ts'
-import { synthesizeAnswer, type SynthesisSource } from '../services/chatSynthesis.ts'
+import { createRateLimiter } from '../services/rate-limit.ts'
+import {
+  embedQuery,
+  EmbeddingUnavailableError,
+} from '../services/chatEmbedding.ts'
+import {
+  synthesizeAnswer,
+  SynthesisUnavailableError,
+  type SynthesisSource,
+} from '../services/chatSynthesis.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 const router = Router()
+
+// Per-member rate limits (keyed on lowercase email):
+// 10 questions per minute, 100 per hour. Matches the pattern in
+// server/routes/auth.ts.
+const askMinuteLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10 })
+const askHourLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 100 })
 
 interface DBRow {
   id: string
@@ -956,25 +1058,71 @@ interface DBRow {
 // ---------------------------------------------------------------------------
 router.post('/ask', requireAuth, async (req, res) => {
   const startedAt = Date.now()
+  const email = req.user!.email.toLowerCase()
+
+  // ---- Rate limit (fail-fast before any LLM cost) ----
+  const minuteCheck = askMinuteLimiter.check(`ask:minute:${email}`)
+  const hourCheck = askHourLimiter.check(`ask:hour:${email}`)
+  if (!minuteCheck.allowed || !hourCheck.allowed) {
+    const retryAfterSec = !minuteCheck.allowed ? 60 : 60 * 60
+    res.setHeader('Retry-After', String(retryAfterSec))
+    res.status(429).json({ error: 'rate_limited', retryAfterSec })
+    return
+  }
+
+  // ---- Input validation ----
+  const query = typeof req.body?.query === 'string' ? req.body.query.trim() : ''
+  if (!query || query.length > 500) {
+    res.status(400).json({ error: 'bad_query', code: 'bad_query' })
+    return
+  }
+  const limit = Math.min(
+    Math.max(typeof req.body?.limit === 'number' ? req.body.limit : 12, 1),
+    30,
+  )
+  const channel = typeof req.body?.channel === 'string' ? req.body.channel : null
+  const dateFrom = typeof req.body?.dateFrom === 'string' ? req.body.dateFrom : null
+  const dateTo = typeof req.body?.dateTo === 'string' ? req.body.dateTo : null
+
+  // ---- Privacy-aware event logging (fire-and-forget, never blocks) ----
+  pool
+    .query(
+      `SELECT chat_query_logging_opted_out AS opted_out
+       FROM cpo_connect.member_profiles
+       WHERE email = $1`,
+      [email],
+    )
+    .then((r) => {
+      const optedOut = r.rows[0]?.opted_out === true
+      if (optedOut) {
+        trackEvent(AnalyticsEvent.CHAT_QUERY_REDACTED, email, {
+          char_count: query.length,
+          channel,
+          limit,
+        })
+      } else {
+        trackEvent(AnalyticsEvent.CHAT_QUERY, email, { query, channel, limit })
+      }
+    })
+    .catch(() => {
+      /* logging must never block the request — fail silently */
+    })
+
   try {
-    const query = typeof req.body?.query === 'string' ? req.body.query.trim() : ''
-    if (!query || query.length > 500) {
-      res.status(400).json({ error: 'Query must be 1-500 characters', code: 'bad_query' })
-      return
+    // ---- Embed query (Gemini) ----
+    let embedding: number[]
+    try {
+      embedding = await embedQuery(query)
+    } catch (err) {
+      if (err instanceof EmbeddingUnavailableError) {
+        res.setHeader('Retry-After', '30')
+        res.status(503).json({ error: 'embedding_unavailable', retryAfterSec: 30 })
+        return
+      }
+      throw err
     }
 
-    const limit = Math.min(
-      Math.max(typeof req.body?.limit === 'number' ? req.body.limit : 12, 1),
-      30,
-    )
-    const channel = typeof req.body?.channel === 'string' ? req.body.channel : null
-    const dateFrom = typeof req.body?.dateFrom === 'string' ? req.body.dateFrom : null
-    const dateTo = typeof req.body?.dateTo === 'string' ? req.body.dateTo : null
-
-    trackEvent(AnalyticsEvent.CHAT_QUERY, req.user!.email, { query, channel, limit })
-
-    const embedding = await embedQuery(query)
-
+    // ---- Vector search ----
     const sql = `
       SELECT
         cm.id::text AS id,
@@ -1003,6 +1151,19 @@ router.post('/ask', requireAuth, async (req, res) => {
       limit,
     ])
 
+    // ---- Zero-match empty state ----
+    if (result.rows.length === 0) {
+      res.status(200).json({
+        answer: null,
+        sources: [],
+        message: 'No relevant chat history found for this question',
+        queryMs: Date.now() - startedAt,
+        model: null,
+      })
+      return
+    }
+
+    // ---- Build sources with identification opt-out honored ----
     const sources: Array<SynthesisSource & { authorOptedOut: boolean; similarity: number }> =
       result.rows.map((row, i) => {
         const optedOut = row.opted_out === true
@@ -1017,7 +1178,20 @@ router.post('/ask', requireAuth, async (req, res) => {
         }
       })
 
-    const { answer, model } = await synthesizeAnswer({ query, sources })
+    // ---- Claude synthesis (with explicit failure mapping) ----
+    let answer: string
+    let model: string
+    try {
+      const out = await synthesizeAnswer({ query, sources })
+      answer = out.answer
+      model = out.model
+    } catch (err) {
+      if (err instanceof SynthesisUnavailableError) {
+        res.status(503).json({ error: 'synthesis_unavailable' })
+        return
+      }
+      throw err
+    }
 
     res.status(200).json({
       answer,
@@ -1026,8 +1200,9 @@ router.post('/ask', requireAuth, async (req, res) => {
       model,
     })
   } catch (err) {
-    console.error('POST /api/chat/ask error:', (err as Error).message)
-    res.status(500).json({ error: 'Service temporarily unavailable', code: 'service_error' })
+    // DB error or any unanticipated failure → 500
+    console.error('POST /api/chat/ask unhandled:', (err as Error).message)
+    res.status(500).json({ error: 'internal' })
   }
 })
 
@@ -1036,7 +1211,9 @@ export default router
 
 - [ ] **Step 3: Mount the router in server.ts**
 
-Edit `server.ts`. Add the import and mount:
+Edit `server.ts`. Add the import and mount. Note that Task 10 will add a
+`/api/admin/chat/ingest`-specific 50MB body limit **before** the router
+mount; that's out of scope for Task 8 and added later.
 
 ```typescript
 import chatRouter from './server/routes/chat.ts'
@@ -1045,7 +1222,9 @@ app.use('/api/chat', chatRouter)
 app.use('/api/admin/chat', chatRouter) // admin routes share the same router
 ```
 
-(The admin routes inside `chat.ts` will apply `requireAdmin` middleware on their own handlers — see Task 10.)
+Admin authorization is enforced per-endpoint inside `chat.ts`:
+- `POST /ingest` uses `requireIngestAuth` (dual cookie/header auth — Task 10)
+- `GET /ingestion-runs` uses `requireAuth, requireAdmin` (cookie only — Task 11)
 
 - [ ] **Step 4: Smoke test the endpoint**
 
@@ -1132,23 +1311,221 @@ git commit -m "feat(weta): add GET /api/chat/prompt-tiles endpoint"
 
 ---
 
-### Task 10: `POST /api/admin/chat/ingest` endpoint
+### Task 10: `POST /api/admin/chat/ingest` endpoint + `requireIngestAuth` middleware + 50MB body limit
 
 **Files:**
+- Create: `server/middleware/requireIngestAuth.ts`
+- Create: `src/test/requireIngestAuth.test.ts`
 - Modify: `server/routes/chat.ts`
+- Modify: `server.ts`
 
-- [ ] **Step 1: Add the endpoint**
+The ingest endpoint is the one place the plan introduces a new auth path:
+either a valid admin session cookie (same as the ingestion-runs endpoint)
+**or** a matching `X-Ingest-Key` header. The script uses the header path
+because there is no way to set a cookie from a CLI. All of that logic is
+encapsulated in a single new middleware, `requireIngestAuth`, so the
+endpoint stays clean.
 
-Append to `server/routes/chat.ts` (above `export default router`):
+- [ ] **Step 1: Write the failing test for `requireIngestAuth`**
+
+Create `src/test/requireIngestAuth.test.ts`:
+
+```typescript
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { Request, Response, NextFunction } from 'express'
+import { requireIngestAuth } from '../../server/middleware/requireIngestAuth'
+
+function makeRes() {
+  const res = {
+    status: vi.fn().mockReturnThis(),
+    json: vi.fn().mockReturnThis(),
+  } as unknown as Response
+  return res
+}
+
+describe('requireIngestAuth', () => {
+  beforeEach(() => {
+    process.env.ADMIN_EMAILS = 'erik@theaiexpert.ai'
+    process.env.INGEST_API_KEY =
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+  })
+
+  it('delegates to requireAdmin when a cookie session is already set', () => {
+    const req = {
+      user: { id: 's', email: 'erik@theaiexpert.ai', name: 'Erik' },
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    requireIngestAuth(req, res, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts a matching X-Ingest-Key header and sets a synthetic user', () => {
+    const headerValue = process.env.INGEST_API_KEY!
+    const req = {
+      user: undefined,
+      header: (name: string) =>
+        name.toLowerCase() === 'x-ingest-key' ? headerValue : undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    requireIngestAuth(req, res, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+    expect((req as Request).user).toEqual({
+      id: 'script',
+      email: 'script:ingest',
+      name: 'Ingestion Script',
+    })
+  })
+
+  it('rejects a mismatched X-Ingest-Key header with 401', () => {
+    const req = {
+      user: undefined,
+      header: (name: string) =>
+        name.toLowerCase() === 'x-ingest-key'
+          ? 'this-is-not-the-key-of-equal-length-to-the-env-var-XX'
+          : undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('rejects when INGEST_API_KEY is unset and no cookie', () => {
+    delete process.env.INGEST_API_KEY
+    const req = {
+      user: undefined,
+      header: () => 'whatever',
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 401 when neither cookie nor header is present', () => {
+    const req = { user: undefined, header: () => undefined } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+})
+```
+
+- [ ] **Step 2: Run the test, verify it fails**
+
+```bash
+npm run test -- src/test/requireIngestAuth.test.ts
+```
+
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement `requireIngestAuth`**
+
+Create `server/middleware/requireIngestAuth.ts`:
+
+```typescript
+import type { Request, Response, NextFunction } from 'express'
+import { timingSafeEqual } from 'node:crypto'
+import { requireAdmin } from './requireAdmin.ts'
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  return timingSafeEqual(bufA, bufB)
+}
+
+export function requireIngestAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  // Path 1: cookie session already established upstream by requireAuth.
+  // Delegate to requireAdmin to enforce ADMIN_EMAILS.
+  if (req.user) {
+    return requireAdmin(req, res, next)
+  }
+
+  // Path 2: X-Ingest-Key header verified against INGEST_API_KEY.
+  const provided = req.header('x-ingest-key') ?? ''
+  const expected = process.env.INGEST_API_KEY ?? ''
+
+  if (!provided || !expected || !safeEqual(provided, expected)) {
+    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
+    return
+  }
+
+  // Synthetic identity for run attribution in chat_ingestion_runs.triggered_by_email
+  req.user = {
+    id: 'script',
+    email: 'script:ingest',
+    name: 'Ingestion Script',
+  }
+  next()
+}
+```
+
+- [ ] **Step 4: Run the test, verify it passes**
+
+```bash
+npm run test -- src/test/requireIngestAuth.test.ts
+```
+
+Expected: all 5 tests PASS.
+
+- [ ] **Step 5: Mount the per-route body limit in `server.ts`**
+
+Edit `server.ts`. Before `app.use('/api/chat', chatRouter)`, add the
+route-specific body parser. Note: this uses `express.raw` / `express.json`
+mounted directly on the route path so it takes effect **before** the
+router's handler:
+
+```typescript
+import express from 'express'
+// ...
+// Admin ingest: larger body limit for the embedding payloads (5-15MB/month).
+// This mount must come BEFORE app.use('/api/admin/chat', ...) so the larger
+// limit applies to /api/admin/chat/ingest specifically.
+app.use('/api/admin/chat/ingest', express.json({ limit: '50mb' }))
+
+app.use('/api/chat', chatRouter)
+app.use('/api/admin/chat', chatRouter)
+```
+
+The global `express.json()` at the top of `server.ts` keeps its default
+~100KB limit for every other route. If a request reaches
+`/api/admin/chat/ingest` it goes through the 50MB parser first; the
+router's handler sees `req.body` already parsed.
+
+- [ ] **Step 6: Append the ingest endpoint to `server/routes/chat.ts`**
 
 ```typescript
 import { createHash } from 'node:crypto'
+import { requireIngestAuth } from '../middleware/requireIngestAuth.ts'
 
 interface IngestMessageBody {
   channel: string
   authorName: string
   messageText: string
   sentAt: string
+  sourceExport: string          // REQUIRED — filename of the zip this row came from
   embedding: number[]
 }
 
@@ -1167,8 +1544,10 @@ function contentHash(m: IngestMessageBody): string {
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/chat/ingest — bulk ingest messages + refresh current tiles
+// Auth: admin session cookie OR X-Ingest-Key header (see requireIngestAuth).
+// Body limit: 50MB (mounted per-route in server.ts, not globally).
 // ---------------------------------------------------------------------------
-router.post('/ingest', requireAuth, requireAdmin, async (req, res) => {
+router.post('/ingest', requireIngestAuth, async (req, res) => {
   const startedAt = Date.now()
   let runId: number | null = null
 
@@ -1179,9 +1558,6 @@ router.post('/ingest', requireAuth, requireAdmin, async (req, res) => {
       return
     }
 
-    const sourceExports = Array.isArray(req.body?.sourceExports)
-      ? (req.body.sourceExports as string[])
-      : []
     const messages = Array.isArray(req.body?.messages)
       ? (req.body.messages as IngestMessageBody[])
       : []
@@ -1203,12 +1579,21 @@ router.post('/ingest', requireAuth, requireAdmin, async (req, res) => {
     let skipped = 0
 
     for (const m of messages) {
+      // Per-message validation — skip invalid rows, don't fail the whole run
       if (!Array.isArray(m.embedding) || m.embedding.length !== 768) {
         skipped++
         continue
       }
+      if (typeof m.sourceExport !== 'string' || m.sourceExport.length === 0) {
+        skipped++
+        continue
+      }
+      if (typeof m.channel !== 'string' || !m.channel) {
+        skipped++
+        continue
+      }
+
       const hash = contentHash(m)
-      const source = sourceExports[0] ?? `unknown-${month}`
       const insert = await pool.query(
         `INSERT INTO cpo_connect.chat_messages
            (channel, author_name, message_text, sent_at, source_export, content_hash, embedding)
@@ -1219,7 +1604,7 @@ router.post('/ingest', requireAuth, requireAdmin, async (req, res) => {
           m.authorName,
           m.messageText,
           m.sentAt,
-          source,
+          m.sourceExport,
           hash,
           `[${m.embedding.join(',')}]`,
         ],
@@ -1278,15 +1663,14 @@ router.post('/ingest', requireAuth, requireAdmin, async (req, res) => {
 })
 ```
 
-- [ ] **Step 2: Add a test for the 403 path**
-
-Append to `src/test/requireAdmin.test.ts` — already covers the middleware unit. No new test file needed; end-to-end verification happens in Task 33 (first ingestion run).
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add server/routes/chat.ts
-git commit -m "feat(weta): add POST /api/admin/chat/ingest endpoint"
+git add server/middleware/requireIngestAuth.ts \
+        src/test/requireIngestAuth.test.ts \
+        server/routes/chat.ts \
+        server.ts
+git commit -m "feat(weta): add POST /api/admin/chat/ingest with requireIngestAuth + 50MB body limit"
 ```
 
 ---
@@ -1715,7 +2099,7 @@ const CHANNELS = [
   { id: 'leadership_culture', zip: 'WhatsApp Chat - CPO Connect __ Leadership & Culture.zip' },
 ]
 
-function parseArgs(): { month: string; serverUrl: string; cookie: string } {
+function parseArgs(): { month: string; serverUrl: string; apiKey: string } {
   const args = process.argv.slice(2)
   const monthIdx = args.indexOf('--month')
   if (monthIdx < 0) {
@@ -1726,11 +2110,15 @@ function parseArgs(): { month: string; serverUrl: string; cookie: string } {
     throw new Error('--month must be YYYY-MM')
   }
   const serverUrl = process.env.INGEST_SERVER_URL ?? 'http://localhost:3001'
-  const cookie = process.env.INGEST_COOKIE ?? ''
-  if (!cookie) {
-    throw new Error('INGEST_COOKIE env var must be set (paste the cpo_session cookie from your browser devtools)')
+  const apiKey = process.env.INGEST_API_KEY ?? ''
+  if (!apiKey) {
+    throw new Error(
+      'INGEST_API_KEY env var must be set. The simplest setup is a gitignored ' +
+        '.env.ingest file with INGEST_API_KEY=<the key from Render>, sourced ' +
+        'before running this script (e.g. `set -a; source .env.ingest; set +a; npx tsx ...`).',
+    )
   }
-  return { month, serverUrl, cookie }
+  return { month, serverUrl, apiKey }
 }
 
 function extractChatTxt(zipPath: string): string {
@@ -1769,7 +2157,7 @@ async function readChannel(
 }
 
 async function main() {
-  const { month, serverUrl, cookie } = parseArgs()
+  const { month, serverUrl, apiKey } = parseArgs()
   const baseDir = path.join(os.homedir(), 'Projects', 'CPO Connect')
   console.log(`Ingesting ${month} from ${baseDir}`)
 
@@ -1799,6 +2187,7 @@ async function main() {
       authorName: m.author,
       messageText: m.text,
       sentAt: m.sentAt,
+      sourceExport: m.sourceExport,          // REQUIRED per-message — different channels ship in different zips
       embedding: embeddingById.get(String(i))!,
     })),
   }
@@ -1808,7 +2197,7 @@ async function main() {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Cookie: `cpo_session=${cookie}`,
+      'X-Ingest-Key': apiKey,              // headless auth — no cookie needed
     },
     body: JSON.stringify(payload),
   })
@@ -1841,10 +2230,26 @@ Expected: `package.json` devDependencies updated.
 Temporarily comment out the `fetch` call, then:
 
 ```bash
-INGEST_COOKIE=dummy npx tsx scripts/ingest-whatsapp.ts --month 2026-03
+INGEST_API_KEY=dummy npx tsx scripts/ingest-whatsapp.ts --month 2026-03
 ```
 
 Expected: prints `[ai] N messages in 2026-03`, same for general + leadership_culture, then a message count. No embedding happens because the script exits before that without the fetch. (Remove the comment before committing.)
+
+Create a gitignored `.env.ingest` file with the real key:
+
+```bash
+# .env.ingest (NEVER commit)
+INGEST_API_KEY=<paste-from-render-env-vars>
+INGEST_SERVER_URL=http://localhost:3001
+```
+
+Verify `.gitignore` covers it:
+
+```bash
+grep -F '.env' "/Users/eschwaa/Projects/CPO Connect/cpo-connect-hub/.gitignore"
+```
+
+Expected: a line like `.env*` or `.env.ingest` appears. If not, add it.
 
 - [ ] **Step 4: Restore the fetch call**
 
@@ -2478,12 +2883,15 @@ export default function WhatsTalked() {
 
   if (!query) {
     return (
-      <WhatsTalkedHero
-        selectedChannel={channel}
-        onChannelChange={handleChannelChange}
-        onSubmitQuery={runQuery}
-        isLoading={askMutation.isPending}
-      />
+      <div className="space-y-8">
+        <WhatsTalkedHero
+          selectedChannel={channel}
+          onChannelChange={handleChannelChange}
+          onSubmitQuery={runQuery}
+          isLoading={askMutation.isPending}
+        />
+        <LoggingNotice />
+      </div>
     )
   }
 
@@ -2521,7 +2929,23 @@ export default function WhatsTalked() {
           <Button onClick={clearQuery}>Ask another question</Button>
         </div>
       )}
+
+      <LoggingNotice />
     </div>
+  )
+}
+
+/** Privacy disclosure for query logging. See spec I6. */
+function LoggingNotice() {
+  return (
+    <p className="text-center text-xs text-muted-foreground">
+      We may log the text of your questions to improve this feature. You can
+      opt out in your{' '}
+      <a href="/members/profile" className="underline hover:text-foreground">
+        profile
+      </a>
+      .
+    </p>
   )
 }
 ```
@@ -2738,13 +3162,16 @@ git commit -m "feat(weta): replace ChatInsights with MonthlySummaries archive in
 
 ---
 
-### Task 28: Profile opt-out toggle
+### Task 28: Profile opt-out toggles (identification + query logging)
 
 **Files:**
 - Modify: `src/pages/members/Profile.tsx`
 - Modify: `server/routes/members.ts`
 
-- [ ] **Step 1: Add the field to the backend whitelist**
+The Profile page gets **two** independent toggles. Both target new
+columns on `member_profiles` added by migration 010.
+
+- [ ] **Step 1: Add both fields to the backend whitelist**
 
 Edit `server/routes/members.ts`. Update `EDITABLE_FIELDS`:
 
@@ -2754,6 +3181,7 @@ const EDITABLE_FIELDS = [
   'focus_areas', 'areas_of_interest', 'linkedin_url', 'bio', 'skills',
   'phone', 'show_email', 'show_phone',
   'chat_identification_opted_out',
+  'chat_query_logging_opted_out',
 ] as const
 ```
 
@@ -2762,62 +3190,112 @@ Update `PROFILE_COLUMNS`:
 ```typescript
 const PROFILE_COLUMNS = `email, name, role, current_org, sector, location,
   focus_areas, areas_of_interest, linkedin_url, bio, skills,
-  phone, photo_url, show_email, show_phone, chat_identification_opted_out, updated_at`
+  phone, photo_url, show_email, show_phone,
+  chat_identification_opted_out, chat_query_logging_opted_out, updated_at`
 ```
 
-Update the PUT handler's type check — add `chat_identification_opted_out` to the list of boolean fields:
+Update the PUT handler's type check so both new fields are treated as
+booleans:
 
 ```typescript
-if (field === 'show_email' || field === 'show_phone' || field === 'chat_identification_opted_out') {
-  if (typeof val === 'boolean') updates[field] = val
+const BOOLEAN_FIELDS = new Set([
+  'show_email',
+  'show_phone',
+  'chat_identification_opted_out',
+  'chat_query_logging_opted_out',
+])
+
+for (const field of EDITABLE_FIELDS) {
+  if (field in req.body) {
+    const val = req.body[field]
+    if (BOOLEAN_FIELDS.has(field)) {
+      if (typeof val === 'boolean') updates[field] = val
+    } else if (typeof val === 'string') {
+      updates[field] = val
+    }
+  }
 }
 ```
 
 - [ ] **Step 2: Update the Profile interface and UI**
 
-Edit `src/pages/members/Profile.tsx`. Add `chat_identification_opted_out: boolean` to the `Profile` interface.
+Edit `src/pages/members/Profile.tsx`. Add both fields to the `Profile`
+interface:
 
-Add a new card near the bottom of the Profile form (before the Save button area). Insert this JSX:
+```typescript
+chat_identification_opted_out: boolean
+chat_query_logging_opted_out: boolean
+```
+
+Add a new card near the bottom of the form (before the Save button area)
+with **two** toggles:
 
 ```tsx
 <Card>
   <CardHeader>
     <CardTitle>Privacy — chat analysis</CardTitle>
   </CardHeader>
-  <CardContent className="space-y-3">
-    <div className="flex items-start gap-3">
-      <input
-        type="checkbox"
-        id="chat-opt-out"
-        checked={form.chat_identification_opted_out ?? false}
-        onChange={(e) =>
-          setForm({ ...form, chat_identification_opted_out: e.target.checked })
-        }
-        className="mt-1 h-4 w-4"
-      />
-      <Label htmlFor="chat-opt-out" className="cursor-pointer font-normal">
-        Hide my name from chat analysis results
-      </Label>
+  <CardContent className="space-y-5">
+    <div className="space-y-2">
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          id="chat-id-opt-out"
+          checked={form.chat_identification_opted_out ?? false}
+          onChange={(e) =>
+            setForm({ ...form, chat_identification_opted_out: e.target.checked })
+          }
+          className="mt-1 h-4 w-4"
+        />
+        <Label htmlFor="chat-id-opt-out" className="cursor-pointer font-normal">
+          Hide my name from chat analysis results
+        </Label>
+      </div>
+      <p className="pl-7 text-xs text-muted-foreground">
+        Your messages are still searchable but attributed as &ldquo;A member
+        said…&rdquo; instead of with your name.
+      </p>
     </div>
-    <p className="text-xs text-muted-foreground">
-      When enabled, your messages are still searchable but attributed as &ldquo;A member
-      said…&rdquo; instead of with your name.
-    </p>
+
+    <div className="space-y-2">
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          id="chat-log-opt-out"
+          checked={form.chat_query_logging_opted_out ?? false}
+          onChange={(e) =>
+            setForm({ ...form, chat_query_logging_opted_out: e.target.checked })
+          }
+          className="mt-1 h-4 w-4"
+        />
+        <Label htmlFor="chat-log-opt-out" className="cursor-pointer font-normal">
+          Don't log the text of my questions
+        </Label>
+      </div>
+      <p className="pl-7 text-xs text-muted-foreground">
+        We still count that you asked something (for usage stats), but won't
+        store the text of your questions or the answers.
+      </p>
+    </div>
   </CardContent>
 </Card>
 ```
 
-(Adjust `form` setter names to match whatever the existing Profile.tsx uses — read it first.)
+(Read the existing `src/pages/members/Profile.tsx` first to match the
+actual `form` state setter names — this plan uses `setForm` but the real
+file may use `setProfile` or similar.)
 
 - [ ] **Step 3: Verify end-to-end**
 
-Start the dev server and dev frontend. Log in, go to /members/profile, toggle the opt-out, save, reload — verify the toggle stays on.
+Start both dev servers. Log in, go to `/members/profile`, toggle each
+checkbox, save, reload — verify both stay set. Then unset one and leave
+the other set, save, reload — verify they persist independently.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/pages/members/Profile.tsx server/routes/members.ts
-git commit -m "feat(weta): add chat identification opt-out toggle on profile"
+git commit -m "feat(weta): add chat identification + query logging opt-out toggles on profile"
 ```
 
 ---
@@ -2995,7 +3473,12 @@ No commit — this is a gate check.
 
 - [ ] **Step 1: Set local env vars**
 
-Ensure `.env` has `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `SESSION_SECRET`, `ADMIN_EMAILS=erik@theaiexpert.ai` (or whatever Erik's address is).
+Ensure `.env` has `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`,
+`SESSION_SECRET`, `ADMIN_EMAILS=erik@theaiexpert.ai` (or whatever Erik's
+address is), and `INGEST_API_KEY=<the-key-also-set-on-render>`.
+
+Also set the same `INGEST_API_KEY` in a gitignored `.env.ingest` file for
+the script to source.
 
 - [ ] **Step 2: Start the dev server**
 
@@ -3005,15 +3488,11 @@ npm run dev:server
 
 Wait for `Migrations complete`.
 
-- [ ] **Step 3: Log in via magic link, grab the session cookie**
-
-In Chrome devtools → Application → Cookies → copy the value of `cpo_session`.
-
-- [ ] **Step 4: Run ingestion for January**
+- [ ] **Step 3: Run ingestion for January using the headless API key**
 
 ```bash
-INGEST_COOKIE='<paste-cookie-here>' \
-  npx tsx scripts/ingest-whatsapp.ts --month 2026-01
+set -a; source .env.ingest; set +a
+npx tsx scripts/ingest-whatsapp.ts --month 2026-01
 ```
 
 Expected log output:
@@ -3029,11 +3508,11 @@ POST http://localhost:3001/api/admin/chat/ingest
 Ingested: N, skipped: 0, runId: 1
 ```
 
-- [ ] **Step 5: Run ingestion for February and March**
+- [ ] **Step 4: Run ingestion for February and March**
 
 ```bash
-INGEST_COOKIE='<cookie>' npx tsx scripts/ingest-whatsapp.ts --month 2026-02
-INGEST_COOKIE='<cookie>' npx tsx scripts/ingest-whatsapp.ts --month 2026-03
+npx tsx scripts/ingest-whatsapp.ts --month 2026-02
+npx tsx scripts/ingest-whatsapp.ts --month 2026-03
 ```
 
 - [ ] **Step 6: Verify corpus size**
@@ -3081,16 +3560,23 @@ Open http://localhost:5173 in a browser:
 - [ ] Verify query response time under 3 seconds
 - [ ] Click "Back" — returns to hero
 - [ ] Click "Ask another question" — returns to hero
-- [ ] Navigate to `/members/profile` — verify "Hide my name from chat analysis results" toggle exists
-- [ ] Toggle it on, save
+- [ ] Verify the privacy notice appears below the hero form with a link to profile
+- [ ] Navigate to `/members/profile` — verify **both** toggles exist: "Hide my name" and "Don't log the text of my questions"
+- [ ] Toggle "Hide my name" on, save
 - [ ] Go back to `/members/whats-talked`, run a query that should include your own messages
 - [ ] Verify your messages show as "A member" with the "opted out" pill
-- [ ] Toggle off, save, re-run — your name returns
+- [ ] Toggle it off, save, re-run — your name returns
+- [ ] Toggle "Don't log questions" on, save
+- [ ] Run a query, then check the events table: `psql "$DATABASE_URL" -c "SELECT event, metadata FROM cpo_connect.events WHERE email = 'you@example.com' ORDER BY created_at DESC LIMIT 3"`
+- [ ] Verify the most recent row has `event = 'chat_query_redacted'` and metadata contains `char_count` but NO `query` field
+- [ ] Toggle it off again, re-run — event is `chat_query` with the full query text
+- [ ] Test rate limit: fire 11 queries in under a minute — the 11th returns 429 with a `Retry-After` header
 - [ ] Navigate to `/members/summaries` — see three month links
 - [ ] Click March 2026 — opens `/reference/chat-analysis-mar2026.html` in a new tab, page renders
 - [ ] Navigate to `/members/admin/chat-ingest` (as admin email) — see 3 ingestion runs listed
 - [ ] Navigate there as a non-admin — see "Admin access required" error
 - [ ] Directory + Profile pages still load correctly (no regressions)
+- [ ] Test failure mode: temporarily unset `GEMINI_API_KEY`, restart server, run a query — frontend shows the "Search is briefly busy" toast, backend logs a 503 `embedding_unavailable`. Restore the key.
 
 - [ ] **Step 3: File any issues found**
 
@@ -3103,7 +3589,7 @@ No commit unless bugs were fixed.
 ### Task 33: Render environment variables setup
 
 **Files:**
-- None (Render dashboard)
+- None (Render dashboard + local `.env.ingest`)
 
 - [ ] **Step 1: Set env vars on the cpo-connect-hub Render service**
 
@@ -3111,6 +3597,13 @@ Go to Render dashboard → cpo-connect-hub service → Environment → Add:
 
 - `ANTHROPIC_API_KEY` = (production Anthropic key)
 - `ADMIN_EMAILS` = `erik@theaiexpert.ai` (comma-separated list if needed)
+- `INGEST_API_KEY` = a new long random hex string. Generate with:
+  ```bash
+  openssl rand -hex 32
+  ```
+  Copy the value, paste into Render, then **also** paste into a local
+  `.env.ingest` file in `cpo-connect-hub/` (make sure it's gitignored)
+  so the monthly ingestion script can authenticate.
 
 Confirm that `GEMINI_API_KEY`, `DATABASE_URL`, `SESSION_SECRET`, `MAGIC_LINK_BASE_URL`, `RESEND_API_KEY` are already set.
 
@@ -3161,37 +3654,66 @@ If a PR already exists for the spec, this PR #19 now also contains the full impl
 
 ## Self-Review
 
-**Spec coverage:**
+**Spec coverage (post codex review feedback):**
 - Vision (catch-up / historical Q&A / cross-channel) — ✅ covered by `POST /api/chat/ask` + `WhatsTalked.tsx`
 - Design principles (read-only, members-only, monthly ingest, names by default/opt-out, stateless, channel-aware, local embed) — ✅ all covered
-- Architecture runtime flow — ✅ Task 8
-- Architecture ingestion flow — ✅ Tasks 13–15, 31
+- Architecture runtime flow with rate limit + failure mapping + privacy logging — ✅ Task 8
+- Architecture ingestion flow with dual auth + per-route body limit + per-msg sourceExport — ✅ Tasks 10 (endpoint) + 15 (script)
+- Migration idempotency (I1) — ✅ Tasks 2 and 3 use `IF NOT EXISTS` throughout
+- Express body limit (I2) — ✅ Task 10 Step 5 mounts `express.json({ limit: '50mb' })` on the ingest route only
+- Admin middleware chain (I3) — ✅ Task 7 (`requireAdmin` uses `req.user.email`, composes with `requireAuth`), Task 10 (`requireIngestAuth` delegates to `requireAdmin` for cookie path)
+- Correct file paths (I4) — ✅ Task 26 uses `src/components/Navbar.tsx` and `src/App.tsx`
+- Rate limit on ask endpoint (I5) — ✅ Task 8 uses `createRateLimiter` with 10/min + 100/hr
+- Privacy / query logging redaction (I6) — ✅ Tasks 3 (migration), 8 (logging code), 25 (notice), 28 (profile toggle)
+- Failure modes on ask (I7) — ✅ Task 4 (`EmbeddingUnavailableError`), Task 5 (`SynthesisUnavailableError` + 20s timeout), Task 8 (error mapping to 503)
+- N1 EDITABLE_FIELDS updated — ✅ Task 28 Step 1
+- N2 chatChannels.ts scoped to WETA — ✅ Task 16 (spec + plan both note marketing page stays untouched)
+- Dual auth with `INGEST_API_KEY` (B2) — ✅ Task 10 (`requireIngestAuth.ts` + tests)
+- Per-message `sourceExport` (B1) — ✅ Task 10 (validation) + Task 15 (script populates it)
 - Components frontend new — ✅ Tasks 16–25
 - Components frontend modified — ✅ Tasks 26–28
-- Components backend new — ✅ Tasks 2–11
+- Components backend new — ✅ Tasks 2–12
 - Local script — ✅ Tasks 13–15
 - Admin UI — ✅ Task 29
-- Data model — ✅ Tasks 2–3 (with flagged FK ambiguity)
-- API endpoints — ✅ Tasks 8–11
-- Admin role — ✅ Task 7 (requireAdmin middleware)
-- Frontend design (route, hero, results, channel constant, profile, admin) — ✅ Tasks 16, 24, 25, 28, 29
-- State management (React Query + URL state) — ✅ Tasks 17, 25
-- Environment variables — ✅ Task 33
+- Data model — ✅ Tasks 2–3
+- API endpoints — ✅ Tasks 8–12
+- Admin role — ✅ Task 7 (`requireAdmin`) + Task 10 (`requireIngestAuth`)
+- Frontend design — ✅ Tasks 16, 24, 25, 28, 29
+- State management — ✅ Tasks 17, 25
+- Environment variables — ✅ Task 33 (includes INGEST_API_KEY generation)
 - Gemini embedding details — ✅ Task 4 + Task 14
-- Security + privacy — ✅ Tasks 7 (admin gate), 8 (opt-out strip), 12 (reference auth gate)
+- Security + privacy — ✅ Tasks 7, 8, 10 (dual auth), 12 (reference auth gate), 28 (opt-outs)
 - Phase 1 scope items 1–10 — ✅ all mapped
-- Success criteria — ✅ validated in Task 32 QA list
+- Success criteria — ✅ validated in Task 32 QA list (now includes rate-limit test and redacted event check)
 
-**Placeholder scan:** No TBD, TODO, "add validation", or "similar to Task N" placeholders. Every code block is complete.
+**Placeholder scan:** No TBD, TODO, or "similar to Task N" placeholders.
+Every code block is complete.
 
-**Type consistency:** `ChatSource`, `ChatAnswer`, `IngestionRun`, `PromptTile`, `SynthesisSource`, `SynthesisInput` are defined once and reused. `author_email` / `triggered_by_email` naming consistent across migration 009, chat.ts router, and admin endpoints.
+**Type consistency:** `ChatSource`, `ChatAnswer`, `IngestionRun`,
+`PromptTile`, `SynthesisSource`, `SynthesisInput`,
+`EmbeddingUnavailableError`, `SynthesisUnavailableError` are defined once
+and reused. `author_email` / `triggered_by_email` naming consistent
+across migration 009, chat.ts router, ingest endpoint, and admin
+endpoints. `X-Ingest-Key` header name consistent between
+`requireIngestAuth.ts` and the ingestion script.
 
-**Known gap / needs Erik confirmation:**
-1. The `author_profile_id UUID` and `triggered_by_profile_id UUID` from the spec are replaced with `author_email TEXT` and `triggered_by_email TEXT` in this plan because `member_profiles.email` is the actual PK. Erik should confirm this deviation before the executor starts.
-2. The `/reference` auth-gated static mount is an addition to the spec (which said "repurposed as monthly archive index (links to reference/chat-analysis-*.html)" without specifying *how* those links would work). Erik should confirm the gate-behind-auth interpretation.
+**Still open for Erik:**
+1. **`INGEST_API_KEY` generation is a manual step.** The plan says to run
+   `openssl rand -hex 32` and paste into Render env vars + local
+   `.env.ingest`. The executor cannot do this autonomously. Flag when
+   the PR is ready.
+2. **Admin email list.** `ADMIN_EMAILS` needs to be set in Render with
+   Erik's real email (currently the plan uses `erik@theaiexpert.ai` as
+   an example).
 
 ---
 
 ## Task Count
 
-**34 tasks** organized into 8 phases. TDD-first on every backend service. Frequent commits. No placeholder content.
+**34 tasks** organized into 8 phases. TDD-first on every backend
+service and middleware. Frequent commits. No placeholder content.
+
+Task 10 (ingest endpoint) was expanded to include the new
+`requireIngestAuth` middleware + tests + per-route body limit mount to
+avoid renumbering; the task is larger than average but still
+self-contained.
