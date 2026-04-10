@@ -1,5 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
+
+// Hoisted mocks for the dependencies that requireAuth pulls in — vitest
+// hoists vi.mock factories to the top of the file, so the mock variables
+// they capture must be hoisted too.
+const { poolQueryMock, unsignMock } = vi.hoisted(() => ({
+  poolQueryMock: vi.fn(),
+  unsignMock: vi.fn(),
+}))
+
+vi.mock('../../server/db', () => ({
+  default: { query: poolQueryMock },
+}))
+
+vi.mock('cookie-signature', () => ({
+  unsign: unsignMock,
+}))
+
 import {
   requireIngestAuth,
   SCRIPT_USER,
@@ -19,102 +36,193 @@ describe('requireIngestAuth', () => {
   beforeEach(() => {
     process.env.ADMIN_EMAILS = 'erik@theaiexpert.ai'
     process.env.INGEST_API_KEY = KEY
+    process.env.SESSION_SECRET = 'test-secret'
+    poolQueryMock.mockReset()
+    unsignMock.mockReset()
   })
 
-  it('delegates to requireAdmin when a cookie session is already set', () => {
-    const req = {
-      user: { id: 's', email: 'erik@theaiexpert.ai', name: 'Erik' },
-      header: () => undefined,
-    } as unknown as Request
-    const res = makeRes()
-    const next = vi.fn() as unknown as NextFunction
+  // -------------------------------------------------------------------------
+  // Header path (script)
+  // -------------------------------------------------------------------------
 
-    requireIngestAuth(req, res, next)
-
-    expect(next).toHaveBeenCalledTimes(1)
-  })
-
-  it('rejects when cookie session is for a non-admin user', () => {
-    const req = {
-      user: { id: 's', email: 'joe@example.com', name: 'Joe' },
-      header: () => undefined,
-    } as unknown as Request
-    const res = makeRes()
-    const next = vi.fn() as unknown as NextFunction
-
-    requireIngestAuth(req, res, next)
-
-    expect(res.status).toHaveBeenCalledWith(403)
-    expect(next).not.toHaveBeenCalled()
-  })
-
-  it('accepts a matching X-Ingest-Key header and sets a synthetic user', () => {
+  it('accepts a matching X-Ingest-Key header and sets a synthetic user', async () => {
     const req = {
       user: undefined,
+      cookies: {},
       header: (name: string) =>
         name.toLowerCase() === 'x-ingest-key' ? KEY : undefined,
     } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as unknown as NextFunction
 
-    requireIngestAuth(req, res, next)
+    await requireIngestAuth(req, res, next)
 
     expect(next).toHaveBeenCalledTimes(1)
     expect((req as Request).user).toEqual(SCRIPT_USER)
   })
 
-  it('rejects a mismatched X-Ingest-Key header with 401', () => {
+  it('rejects a mismatched X-Ingest-Key header with 401', async () => {
     const bogus = 'f'.repeat(KEY.length)
     const req = {
       user: undefined,
+      cookies: {},
       header: (name: string) =>
         name.toLowerCase() === 'x-ingest-key' ? bogus : undefined,
     } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as unknown as NextFunction
 
-    requireIngestAuth(req, res, next)
+    await requireIngestAuth(req, res, next)
 
     expect(res.status).toHaveBeenCalledWith(401)
     expect(next).not.toHaveBeenCalled()
   })
 
-  it('rejects a header of the wrong length (guards timingSafeEqual)', () => {
+  it('rejects a header of a different length with 401', async () => {
+    // With SHA-256 hashing, both inputs get normalized to 32-byte digests
+    // before comparison — so the early-return length pre-check is gone. A
+    // short guess must still fail the same way.
     const req = {
       user: undefined,
+      cookies: {},
       header: (name: string) =>
         name.toLowerCase() === 'x-ingest-key' ? 'short' : undefined,
     } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as unknown as NextFunction
 
-    requireIngestAuth(req, res, next)
+    await requireIngestAuth(req, res, next)
 
     expect(res.status).toHaveBeenCalledWith(401)
     expect(next).not.toHaveBeenCalled()
   })
 
-  it('rejects when INGEST_API_KEY is unset and no cookie', () => {
+  it('rejects when the header is present but INGEST_API_KEY is unset', async () => {
     delete process.env.INGEST_API_KEY
     const req = {
       user: undefined,
-      header: () => 'whatever',
+      cookies: {},
+      header: (name: string) =>
+        name.toLowerCase() === 'x-ingest-key' ? 'whatever' : undefined,
     } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as unknown as NextFunction
 
-    requireIngestAuth(req, res, next)
+    await requireIngestAuth(req, res, next)
 
     expect(res.status).toHaveBeenCalledWith(401)
     expect(next).not.toHaveBeenCalled()
   })
 
-  it('rejects with 401 when neither cookie nor header is present', () => {
-    const req = { user: undefined, header: () => undefined } as unknown as Request
+  // -------------------------------------------------------------------------
+  // Pre-populated req.user short-circuit (defensive)
+  // -------------------------------------------------------------------------
+
+  it('delegates to requireAdmin when a cookie session is already set (admin)', async () => {
+    const req = {
+      user: { id: 's', email: 'erik@theaiexpert.ai', name: 'Erik' },
+      cookies: {},
+      header: () => undefined,
+    } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as unknown as NextFunction
 
-    requireIngestAuth(req, res, next)
+    await requireIngestAuth(req, res, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects when pre-populated cookie session is for a non-admin user', async () => {
+    const req = {
+      user: { id: 's', email: 'joe@example.com', name: 'Joe' },
+      cookies: {},
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    await requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  // -------------------------------------------------------------------------
+  // Cookie path (fresh session load via requireAuth)
+  // -------------------------------------------------------------------------
+
+  it('loads a fresh admin session from the cookie and calls next', async () => {
+    unsignMock.mockReturnValue('session-id-1')
+    poolQueryMock.mockResolvedValueOnce({
+      rows: [{ id: 'session-id-1', email: 'erik@theaiexpert.ai', name: 'Erik' }],
+    })
+
+    const req = {
+      user: undefined,
+      cookies: { cpo_session: 's:signed-value' },
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    await requireIngestAuth(req, res, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+    expect((req as Request).user).toEqual({
+      id: 'session-id-1',
+      email: 'erik@theaiexpert.ai',
+      name: 'Erik',
+    })
+  })
+
+  it('returns 403 when the cookie session is a valid non-admin user', async () => {
+    unsignMock.mockReturnValue('session-id-2')
+    poolQueryMock.mockResolvedValueOnce({
+      rows: [{ id: 'session-id-2', email: 'joe@example.com', name: 'Joe' }],
+    })
+
+    const req = {
+      user: undefined,
+      cookies: { cpo_session: 's:signed-value' },
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    await requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(403)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 when no cookie and no header are present', async () => {
+    const req = {
+      user: undefined,
+      cookies: {},
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    await requireIngestAuth(req, res, next)
+
+    expect(res.status).toHaveBeenCalledWith(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 when the cookie session does not exist in the DB', async () => {
+    unsignMock.mockReturnValue('session-id-bogus')
+    poolQueryMock.mockResolvedValueOnce({ rows: [] })
+
+    const req = {
+      user: undefined,
+      cookies: { cpo_session: 's:signed-value' },
+      header: () => undefined,
+    } as unknown as Request
+    const res = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+
+    await requireIngestAuth(req, res, next)
 
     expect(res.status).toHaveBeenCalledWith(401)
     expect(next).not.toHaveBeenCalled()
