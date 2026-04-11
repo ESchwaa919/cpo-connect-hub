@@ -55,8 +55,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       } else {
         setUser(null)
-        // Clear stale hint cookie on auth failure
-        document.cookie = 'cpo_has_session=; path=/; max-age=0'
       }
     } catch {
       setUser(null)
@@ -66,14 +64,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Auto-check session on mount if the hint cookie is present.
-  // If no hint cookie, mark as checked immediately (no fetch needed).
+  // Always verify the session on mount by calling /api/auth/me. The
+  // previous hint-cookie shortcut (skip checkAuth when `cpo_has_session`
+  // was absent) caused THE-551: if the hint cookie was missing for any
+  // reason — browser privacy mode, extension interference, stale-clear
+  // after a transient 401 — but the real HttpOnly `cpo_session` cookie
+  // was still valid, the frontend would silently mark the user as
+  // logged out and redirect them to the magic-link flow on every new
+  // window. Always hitting /me is cheap and lets the server be the
+  // single source of truth.
   useEffect(() => {
-    if (document.cookie.includes('cpo_has_session')) {
-      checkAuth()
-    } else {
-      setHasChecked(true)
-    }
+    checkAuth()
   }, [checkAuth])
 
   const login = useCallback(async (email: string): Promise<LoginResult> => {
