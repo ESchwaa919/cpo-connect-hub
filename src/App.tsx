@@ -5,6 +5,7 @@ import { Toaster } from "sonner"
 import { AuthProvider } from "@/contexts/AuthContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { AdminRoute } from "@/components/AdminRoute"
 import { MembersLayout } from "@/components/members/MembersLayout"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { WhatsTalkedErrorFallback } from "@/components/members/whats-talked/WhatsTalkedErrorFallback"
@@ -14,6 +15,7 @@ import ChatInsights from "@/pages/members/ChatInsights"
 import Directory from "@/pages/members/Directory"
 import Profile from "@/pages/members/Profile"
 import WhatsTalked from "@/pages/members/WhatsTalked"
+import AdminIngestionHistory from "@/pages/members/AdminIngestionHistory"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +83,16 @@ function App() {
                       <Profile />
                     </MembersLayout>
                   </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/members/admin/ingestion-history"
+                element={
+                  <AdminRoute>
+                    <MembersLayout>
+                      <AdminIngestionHistory />
+                    </MembersLayout>
+                  </AdminRoute>
                 }
               />
               <Route path="*" element={<NotFound />} />

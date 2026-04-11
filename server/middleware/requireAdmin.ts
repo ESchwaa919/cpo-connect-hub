@@ -8,6 +8,16 @@ function getAdminEmails(): string[] {
     .filter((e) => e.length > 0)
 }
 
+/** True iff the given email is in the ADMIN_EMAILS env var (comma-
+ *  separated, case-insensitive, whitespace-trimmed on both sides).
+ *  Shared by the `requireAdmin` middleware and the /api/auth/me handler
+ *  so the frontend and backend agree on who is an admin. */
+export function isAdminEmail(email: string): boolean {
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return false
+  return getAdminEmails().includes(normalized)
+}
+
 export function requireAdmin(
   req: Request,
   res: Response,
@@ -18,8 +28,7 @@ export function requireAdmin(
     return
   }
 
-  const admins = getAdminEmails()
-  if (!admins.includes(req.user.email.toLowerCase())) {
+  if (!isAdminEmail(req.user.email)) {
     res.status(403).json({ error: 'Admin access required', code: 'not_admin' })
     return
   }

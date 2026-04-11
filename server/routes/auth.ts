@@ -6,6 +6,7 @@ import { lookupMember } from '../services/sheets.ts'
 import { sendMagicLink } from '../services/email.ts'
 import { createRateLimiter } from '../services/rate-limit.ts'
 import { requireAuth } from '../middleware/auth.ts'
+import { isAdminEmail } from '../middleware/requireAdmin.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 import type { MemberRecord } from '../services/sheets.ts'
 
@@ -261,6 +262,7 @@ router.get('/me', requireAuth, async (req, res) => {
       name: member.name,
       email: member.email,
       jobRole: member.jobRole,
+      isAdmin: isAdminEmail(member.email),
     })
   } catch (err) {
     console.error('GET /me error:', (err as Error).message)
