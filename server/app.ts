@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import authRouter from './routes/auth.ts'
 import membersRouter from './routes/members.ts'
 import { chatMemberRouter, chatAdminRouter } from './routes/chat.ts'
+import { requireAuth } from './middleware/auth.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,6 +51,22 @@ export function createApp(options: { serveStatic?: boolean } = {}): Application 
   // requests can't force pre-auth buffering of large bodies.
   app.use('/api/chat', chatMemberRouter)
   app.use('/api/admin/chat', chatAdminRouter)
+
+  // Historical monthly chat analysis reports (HTML files shipped in
+  // `reference/`). Gated behind requireAuth so only signed-in members
+  // can read them. `fallthrough: false` makes express.static answer
+  // with a 404 instead of falling through to the SPA catch-all below,
+  // which would otherwise serve the React bundle for missing files.
+  // Must be mounted BEFORE the serveStatic block so the catch-all
+  // doesn't intercept /reference/* in production.
+  app.use(
+    '/reference',
+    requireAuth,
+    express.static(path.join(__dirname, '..', 'reference'), {
+      index: 'index.html',
+      fallthrough: false,
+    }),
+  )
 
   if (serveStatic) {
     app.get('/sw.js', (_req, res, next) => {

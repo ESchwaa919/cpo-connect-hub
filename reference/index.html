@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPO Connect — Monthly Highlights</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.25rem;
+  }
+  .subtitle { color: #94a3b8; font-size: 1rem; margin-bottom: 2.5rem; }
+  .back-link { font-size: 0.85rem; margin-bottom: 2rem; }
+  .back-link a { color: #a78bfa; text-decoration: none; opacity: 0.75; }
+  .back-link a:hover { opacity: 1; text-decoration: underline; }
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  ul { list-style: none; }
+  li {
+    margin-bottom: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    transition: background 150ms, border-color 150ms;
+  }
+  li:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(167, 139, 250, 0.35);
+  }
+  li a {
+    display: block;
+    color: #e0e0e0;
+    text-decoration: none;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+  li a:hover { color: #a78bfa; }
+  /* Visible keyboard focus ring — the default browser outline is
+     near-invisible against the dark gradient background. */
+  li a:focus-visible,
+  .back-link a:focus-visible {
+    outline: 2px solid #a78bfa;
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+  li .meta {
+    display: block;
+    margin-top: 0.25rem;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-weight: 400;
+  }
+  p.note {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="back-link">
+      <a href="/members/chat-insights">← Back to members area</a>
+    </div>
+
+    <h1>Monthly Highlights</h1>
+    <p class="subtitle">Community chat analysis — one report per month.</p>
+
+    <h2>2026</h2>
+    <ul>
+      <li>
+        <a href="chat-analysis-mar2026.html">
+          March 2026 Chat Analysis
+          <span class="meta">AI tooling debates · hiring market · sustainable work</span>
+        </a>
+      </li>
+      <li>
+        <a href="chat-analysis-feb2026.html">
+          February 2026 Chat Analysis
+          <span class="meta">Month-over-month activity and themes</span>
+        </a>
+      </li>
+      <li>
+        <a href="chat-analysis-jan2026.html">
+          January 2026 Chat Analysis
+          <span class="meta">Community-wide trends to start the year</span>
+        </a>
+      </li>
+    </ul>
+
+    <h2>Archive</h2>
+    <ul>
+      <li>
+        <a href="general.html">
+          General channel snapshot
+          <span class="meta">Early general-channel overview</span>
+        </a>
+      </li>
+    </ul>
+
+    <p class="note">
+      These reports are visible to CPO Connect members only. If you have
+      questions or want to suggest new analyses, reach out on Slack.
+    </p>
+  </div>
+</body>
+</html>
