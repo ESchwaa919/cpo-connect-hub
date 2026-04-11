@@ -41,4 +41,23 @@ describe('SourceCard', () => {
     expect(screen.getByText('hello from the chat')).toBeInTheDocument()
     expect(screen.getByText('Leadership & Culture')).toBeInTheDocument()
   })
+
+  it('is keyboard-focusable as an article landmark with a summary aria-label', () => {
+    render(
+      <SourceCard
+        source={makeSource({
+          id: '3',
+          channel: 'ai',
+          authorDisplayName: 'Dana',
+          authorOptedOut: false,
+        })}
+      />,
+    )
+    const article = screen.getByRole('article')
+    expect(article).toHaveAttribute('tabindex', '0')
+    const label = article.getAttribute('aria-label') ?? ''
+    expect(label).toMatch(/Source 3/)
+    expect(label).toMatch(/Dana/)
+    expect(label).toMatch(/AI/)
+  })
 })

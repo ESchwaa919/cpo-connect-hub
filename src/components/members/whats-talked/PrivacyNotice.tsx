@@ -18,7 +18,7 @@ export function PrivacyNotice({ optedOut }: PrivacyNoticeProps) {
           You have opted out of question logging. Your questions will still
           be answered but the text will not be stored in event logs. You can
           change this in your{' '}
-          <Link to="/members/profile" className="underline underline-offset-2">
+          <Link to="/members/profile#chat-search-privacy" className="underline underline-offset-2">
             profile
           </Link>
           .
@@ -36,7 +36,7 @@ export function PrivacyNotice({ optedOut }: PrivacyNoticeProps) {
       <span>
         We may log the text of your questions to improve this feature. You
         can opt out in your{' '}
-        <Link to="/members/profile" className="underline underline-offset-2">
+        <Link to="/members/profile#chat-search-privacy" className="underline underline-offset-2">
           profile
         </Link>
         .

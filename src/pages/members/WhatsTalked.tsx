@@ -150,6 +150,9 @@ export default function WhatsTalked() {
 
   function runAsk(nextQuery: string): void {
     setDraftQuery(nextQuery)
+    // activeQuery is captured from the closed-over searchParams snapshot,
+    // so this comparison is stable within the handler call.
+    const isResubmit = nextQuery === activeQuery
     updateSearchParams(
       (next) => {
         next.set('q', nextQuery)
@@ -158,6 +161,14 @@ export default function WhatsTalked() {
       // prior questions the way the spec calls out.
       { replace: false },
     )
+    // Force a fresh network call when the query key won't change on its
+    // own (e.g. re-asking the same question to pick up newly ingested
+    // conversations). The 5-minute staleTime still serves the back
+    // button and URL-restore cases where the user hasn't explicitly
+    // submitted a new request.
+    if (isResubmit) {
+      void askQuery.refetch()
+    }
   }
 
   function handleTileSelect(tileQuery: string): void {
@@ -165,7 +176,7 @@ export default function WhatsTalked() {
   }
 
   function handleRetry(): void {
-    askQuery.refetch()
+    void askQuery.refetch()
   }
 
   function handleChannelChange(next: ChannelTabId): void {

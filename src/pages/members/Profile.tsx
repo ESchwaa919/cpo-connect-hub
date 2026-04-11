@@ -81,6 +81,8 @@ export default function Profile() {
         phone: profile.phone,
         show_email: profile.show_email,
         show_phone: profile.show_phone,
+        chat_identification_opted_out: profile.chat_identification_opted_out,
+        chat_query_logging_opted_out: profile.chat_query_logging_opted_out,
       })
       setDirty(false)
     }
@@ -293,6 +295,52 @@ export default function Profile() {
                     <span className="text-xs text-muted-foreground">Show on my directory card</span>
                   </label>
                 </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border/50 pt-4 scroll-mt-20" id="chat-search-privacy">
+              <h3 className="text-sm font-medium mb-3">Chat Search Privacy</h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                These settings control how the "What's Everyone Talking About" chat-search feature handles your identity and your questions.
+              </p>
+              <div className="space-y-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!(form.chat_identification_opted_out ?? false)}
+                    onChange={(e) =>
+                      onChange("chat_identification_opted_out", !e.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-border"
+                    data-testid="chat-identification-toggle"
+                  />
+                  <span>
+                    <span className="text-sm font-medium">Show my name in chat search answers</span>
+                    <span className="block text-xs text-muted-foreground">
+                      When on, other members can see your name next to messages you wrote
+                      in the chat search feature. When off, you appear as "A member".
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!(form.chat_query_logging_opted_out ?? false)}
+                    onChange={(e) =>
+                      onChange("chat_query_logging_opted_out", !e.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-border"
+                    data-testid="chat-query-logging-toggle"
+                  />
+                  <span>
+                    <span className="text-sm font-medium">Log my questions to improve chat search</span>
+                    <span className="block text-xs text-muted-foreground">
+                      When on, we log the text of your questions to help us improve the
+                      feature. When off, only question metadata (length, channel) is
+                      logged — never the question text.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
           </CardContent>

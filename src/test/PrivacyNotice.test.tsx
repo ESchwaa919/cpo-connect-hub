@@ -15,7 +15,7 @@ describe('PrivacyNotice', () => {
       screen.getByText(/We may log the text of your questions/i),
     ).toBeInTheDocument()
     const profileLink = screen.getByRole('link', { name: /profile/i })
-    expect(profileLink).toHaveAttribute('href', '/members/profile')
+    expect(profileLink).toHaveAttribute('href', '/members/profile#chat-search-privacy')
   })
 
   it('shows the opted-out confirmation (mutually exclusive) when optedOut=true', () => {
@@ -30,6 +30,6 @@ describe('PrivacyNotice', () => {
       screen.getByText(/opted out of question logging/i),
     ).toBeInTheDocument()
     const profileLink = screen.getByRole('link', { name: /profile/i })
-    expect(profileLink).toHaveAttribute('href', '/members/profile')
+    expect(profileLink).toHaveAttribute('href', '/members/profile#chat-search-privacy')
   })
 })
