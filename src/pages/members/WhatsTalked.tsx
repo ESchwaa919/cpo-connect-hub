@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { ChannelTabs } from '@/components/members/whats-talked/ChannelTabs'
 import { PromptTile } from '@/components/members/whats-talked/PromptTile'
@@ -9,6 +10,7 @@ import {
   type AnswerPanelState,
 } from '@/components/members/whats-talked/AnswerPanel'
 import { EmptyState } from '@/components/members/whats-talked/EmptyState'
+import { PrivacyNotice } from '@/components/members/whats-talked/PrivacyNotice'
 import {
   ChatAskError,
   type AskSuccessResponse,
@@ -18,13 +20,21 @@ import {
 } from '@/components/members/whats-talked/types'
 import {
   ALL_CHANNELS_ID,
+  isChannelTabId,
   type ChannelTabId,
 } from '@/constants/chatChannels'
+import { useMemberProfile } from '@/hooks/useMemberProfile'
+
+const ASK_STALE_MS = 5 * 60 * 1000
+const TILES_STALE_MS = 60 * 60 * 1000
 
 async function fetchPromptTiles(
   channel: ChannelTabId,
 ): Promise<PromptTilesResponse> {
-  const qs = channel === ALL_CHANNELS_ID ? '' : `?channel=${encodeURIComponent(channel)}`
+  const qs =
+    channel === ALL_CHANNELS_ID
+      ? ''
+      : `?channel=${encodeURIComponent(channel)}`
   const res = await fetch(`/api/chat/prompt-tiles${qs}`, {
     credentials: 'include',
   })
@@ -34,15 +44,11 @@ async function fetchPromptTiles(
   return (await res.json()) as PromptTilesResponse
 }
 
-interface AskVariables {
-  query: string
-  channel: ChannelTabId
-}
-
-async function postAsk({
-  query,
-  channel,
-}: AskVariables): Promise<AskSuccessResponse> {
+async function postAsk(
+  query: string,
+  channel: ChannelTabId,
+  signal: AbortSignal,
+): Promise<AskSuccessResponse> {
   const body: Record<string, unknown> = { query }
   if (channel !== ALL_CHANNELS_ID) body.channel = channel
 
@@ -53,8 +59,12 @@ async function postAsk({
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     })
-  } catch {
+  } catch (err) {
+    // Re-throw aborts as-is so React Query swallows them instead of
+    // surfacing a generic 'internal' error when the user cancels.
+    if ((err as Error).name === 'AbortError') throw err
     throw new ChatAskError('internal', 0)
   }
 
@@ -68,9 +78,6 @@ async function postAsk({
   } catch {
     /* non-JSON error body — fall through to 'internal' default below */
   }
-  // Prefer the JSON body's retryAfterSec; fall back to the Retry-After
-  // HTTP header so a backend that omits the field still drives the
-  // countdown correctly.
   const retryAfterSec =
     payload?.retryAfterSec ??
     (res.headers.get('retry-after')
@@ -84,42 +91,95 @@ async function postAsk({
 }
 
 export default function WhatsTalked() {
-  const [channel, setChannel] = useState<ChannelTabId>(ALL_CHANNELS_ID)
-  const [query, setQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const channelParam = searchParams.get('channel')
+  const channel: ChannelTabId = isChannelTabId(channelParam)
+    ? channelParam
+    : ALL_CHANNELS_ID
+  const activeQuery = searchParams.get('q') ?? ''
+
+  // Textarea draft is separate from activeQuery so typing doesn't re-key
+  // the ask query. Submission moves the draft into the URL search param.
+  const [draftQuery, setDraftQuery] = useState(activeQuery)
+
+  // Keep the draft in sync when the URL changes under us (back/forward
+  // navigation, or a parent link to /members/whats-talked?q=...).
+  useEffect(() => {
+    setDraftQuery(activeQuery)
+  }, [activeQuery])
+
+  const profileQuery = useMemberProfile()
+  // Default to the standard disclosure if the profile fetch fails, so a
+  // transient profile-lookup error never hides the required notice.
+  const optedOut = profileQuery.data?.chat_query_logging_opted_out === true
 
   const tilesQuery = useQuery<PromptTilesResponse>({
     queryKey: ['chat-prompt-tiles', channel],
     queryFn: () => fetchPromptTiles(channel),
+    staleTime: TILES_STALE_MS,
   })
 
-  const askMutation = useMutation<AskSuccessResponse, ChatAskError, AskVariables>(
-    { mutationFn: postAsk },
-  )
+  const askQuery = useQuery<AskSuccessResponse, ChatAskError>({
+    queryKey: ['chat-ask', activeQuery, channel],
+    queryFn: ({ signal }) => postAsk(activeQuery, channel, signal),
+    enabled: activeQuery.length > 0,
+    staleTime: ASK_STALE_MS,
+    retry: false,
+  })
 
-  const answerState: AnswerPanelState = askMutation.isPending
-    ? { kind: 'loading' }
-    : askMutation.isError
-      ? { kind: 'error', error: askMutation.error }
-      : askMutation.isSuccess
-        ? { kind: 'success', response: askMutation.data }
-        : { kind: 'idle' }
+  const answerState: AnswerPanelState =
+    activeQuery.length === 0
+      ? { kind: 'idle' }
+      : askQuery.isPending
+        ? { kind: 'loading' }
+        : askQuery.isError
+          ? { kind: 'error', error: askQuery.error }
+          : askQuery.isSuccess
+            ? { kind: 'success', response: askQuery.data }
+            : { kind: 'idle' }
+
+  function updateSearchParams(
+    mutate: (next: URLSearchParams) => void,
+    options: { replace: boolean },
+  ): void {
+    const next = new URLSearchParams(searchParams)
+    mutate(next)
+    setSearchParams(next, { replace: options.replace })
+  }
 
   function runAsk(nextQuery: string): void {
-    askMutation.mutate({ query: nextQuery, channel })
+    setDraftQuery(nextQuery)
+    updateSearchParams(
+      (next) => {
+        next.set('q', nextQuery)
+      },
+      // Push a new history entry so the back button can step back through
+      // prior questions the way the spec calls out.
+      { replace: false },
+    )
   }
 
   function handleTileSelect(tileQuery: string): void {
-    setQuery(tileQuery)
     runAsk(tileQuery)
   }
 
   function handleRetry(): void {
-    if (askMutation.variables) askMutation.mutate(askMutation.variables)
+    askQuery.refetch()
   }
 
   function handleChannelChange(next: ChannelTabId): void {
-    setChannel(next)
-    askMutation.reset()
+    // Replace (don't push) — tab clicks should not pollute history.
+    updateSearchParams(
+      (nextParams) => {
+        if (next === ALL_CHANNELS_ID) {
+          nextParams.delete('channel')
+        } else {
+          nextParams.set('channel', next)
+        }
+      },
+      { replace: true },
+    )
   }
 
   const tiles: PromptTileData[] = tilesQuery.data
@@ -138,6 +198,8 @@ export default function WhatsTalked() {
           search or leave it on "All channels."
         </p>
       </header>
+
+      <PrivacyNotice optedOut={optedOut} />
 
       <ChannelTabs value={channel} onChange={handleChannelChange} />
 
@@ -169,7 +231,7 @@ export default function WhatsTalked() {
               <PromptTile
                 key={tile.id}
                 tile={tile}
-                disabled={askMutation.isPending}
+                disabled={askQuery.isFetching}
                 onSelect={handleTileSelect}
               />
             ))}
@@ -178,16 +240,20 @@ export default function WhatsTalked() {
       </section>
 
       <AskForm
-        value={query}
-        onChange={setQuery}
+        value={draftQuery}
+        onChange={setDraftQuery}
         onSubmit={runAsk}
-        loading={askMutation.isPending}
+        loading={askQuery.isFetching}
       />
 
       {answerState.kind === 'idle' ? (
         <EmptyState />
       ) : (
-        <AnswerPanel state={answerState} onRetry={handleRetry} />
+        <AnswerPanel
+          state={answerState}
+          onRetry={handleRetry}
+          focusKey={`${activeQuery}|${channel}`}
+        />
       )}
     </div>
   )

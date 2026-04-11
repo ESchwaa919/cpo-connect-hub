@@ -20,6 +20,10 @@ function formatDate(iso: string): string {
 }
 
 export function SourceCard({ source }: SourceCardProps) {
+  // Defense-in-depth: belt-and-braces redaction for opted-out authors.
+  const displayName = source.authorOptedOut
+    ? 'A member'
+    : source.authorDisplayName
   return (
     <Card className="overflow-hidden">
       <CardContent className="space-y-2 p-4">
@@ -27,9 +31,7 @@ export function SourceCard({ source }: SourceCardProps) {
           <Badge variant="secondary" className="font-mono">
             {source.id}
           </Badge>
-          <span className="font-medium text-foreground">
-            {source.authorDisplayName}
-          </span>
+          <span className="font-medium text-foreground">{displayName}</span>
           <span aria-hidden="true">·</span>
           <span>{labelForChannel(source.channel)}</span>
           <span aria-hidden="true">·</span>

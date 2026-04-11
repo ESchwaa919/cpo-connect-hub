@@ -38,3 +38,8 @@ export type ChannelTabId = typeof ALL_CHANNELS_ID | ChatChannelId
 export function labelForChannel(id: string): string {
   return CHAT_CHANNELS.find((c) => c.id === id)?.label ?? id
 }
+
+export function isChannelTabId(value: string | null): value is ChannelTabId {
+  if (value === ALL_CHANNELS_ID) return true
+  return CHAT_CHANNELS.some((c) => c.id === value)
+}

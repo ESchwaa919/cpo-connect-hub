@@ -30,7 +30,8 @@ export function AskForm({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSubmit) {
+    // Enter submits; Shift+Enter inserts a newline for multi-line questions.
+    if (e.key === 'Enter' && !e.shiftKey && canSubmit) {
       e.preventDefault()
       onSubmit(trimmed)
     }
@@ -42,7 +43,7 @@ export function AskForm({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask the group chat anything... (e.g. 'What have people said about hiring senior PMs?')"
+        placeholder="Ask the group chat anything... (Enter to submit, Shift+Enter for a new line)"
         rows={3}
         maxLength={MAX_QUERY_LENGTH * 2}
         disabled={disabled || loading}

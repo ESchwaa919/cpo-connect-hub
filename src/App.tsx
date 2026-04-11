@@ -6,6 +6,8 @@ import { AuthProvider } from "@/contexts/AuthContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { MembersLayout } from "@/components/members/MembersLayout"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { WhatsTalkedErrorFallback } from "@/components/members/whats-talked/WhatsTalkedErrorFallback"
 import Index from "@/pages/Index"
 import NotFound from "@/pages/NotFound"
 import ChatInsights from "@/pages/members/ChatInsights"
@@ -54,7 +56,9 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <MembersLayout>
-                      <WhatsTalked />
+                      <ErrorBoundary fallback={<WhatsTalkedErrorFallback />}>
+                        <WhatsTalked />
+                      </ErrorBoundary>
                     </MembersLayout>
                   </ProtectedRoute>
                 }

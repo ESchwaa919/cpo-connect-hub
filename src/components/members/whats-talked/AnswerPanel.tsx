@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Clock,
@@ -22,43 +22,86 @@ type AnswerPanelState =
 interface AnswerPanelProps {
   state: AnswerPanelState
   onRetry: () => void
+  /** Stable identifier for the current ask (parent derives from query +
+   *  channel). Changes ⇒ focus moves to the answer heading so keyboard
+   *  and screen-reader users land on the new response. Same value ⇒
+   *  focus stays wherever the user moved it. */
+  focusKey: string
 }
 
 export type { AnswerPanelState }
 
-export function AnswerPanel({ state, onRetry }: AnswerPanelProps) {
-  if (state.kind === 'idle') return null
+export function AnswerPanel({ state, onRetry, focusKey }: AnswerPanelProps) {
+  const answerHeadingRef = useRef<HTMLHeadingElement>(null)
+  const lastFocusedKeyRef = useRef<string | null>(null)
 
-  if (state.kind === 'loading') {
-    return (
-      <Card className="border-dashed" role="status" aria-live="polite">
-        <CardContent className="space-y-3 p-6">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Searching chat history and synthesizing an answer…
-          </div>
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-5/6" />
-          <Skeleton className="h-4 w-4/6" />
-        </CardContent>
-      </Card>
-    )
-  }
+  useEffect(() => {
+    if (
+      state.kind === 'success' &&
+      state.response.answer !== null &&
+      lastFocusedKeyRef.current !== focusKey
+    ) {
+      lastFocusedKeyRef.current = focusKey
+      answerHeadingRef.current?.focus()
+    }
+  }, [state, focusKey])
 
-  if (state.kind === 'error') {
-    return <ErrorCard error={state.error} onRetry={onRetry} />
-  }
+  const isLoading = state.kind === 'loading'
 
-  const { response } = state
+  return (
+    <div aria-live="polite" aria-busy={isLoading}>
+      {isLoading ? <LoadingCard /> : null}
+      {state.kind === 'error' ? (
+        <ErrorCard error={state.error} onRetry={onRetry} />
+      ) : null}
+      {state.kind === 'success' ? (
+        state.response.answer === null ? (
+          <ZeroMatchCard message={state.response.message} />
+        ) : (
+          <SuccessBody
+            response={state.response}
+            answerHeadingRef={answerHeadingRef}
+          />
+        )
+      ) : null}
+    </div>
+  )
+}
 
-  if (response.answer === null) {
-    return <ZeroMatchCard message={response.message} />
-  }
+function LoadingCard() {
+  return (
+    <Card className="border-dashed" role="status">
+      <CardContent className="space-y-3 p-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Searching chat history and synthesizing an answer…
+        </div>
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+        <Skeleton className="h-4 w-4/6" />
+      </CardContent>
+    </Card>
+  )
+}
 
+function SuccessBody({
+  response,
+  answerHeadingRef,
+}: {
+  response: AskSuccessResponse
+  answerHeadingRef: React.RefObject<HTMLHeadingElement | null>
+}) {
   return (
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-3 p-6">
+          <h3
+            ref={answerHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-semibold text-muted-foreground focus:outline-none"
+          >
+            Answer
+          </h3>
           <p className="whitespace-pre-wrap text-sm leading-relaxed">
             {response.answer}
           </p>
@@ -203,7 +246,9 @@ function RetryCountdown({
   seconds: number
   onRetry: () => void
 }) {
-  const [remaining, setRemaining] = useState(Math.max(0, Math.ceil(seconds)))
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, Math.ceil(seconds)),
+  )
 
   useEffect(() => {
     setRemaining(Math.max(0, Math.ceil(seconds)))

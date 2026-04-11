@@ -9,32 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
-
-interface Profile {
-  email: string
-  name: string
-  role: string
-  current_org: string
-  sector: string
-  location: string
-  focus_areas: string
-  areas_of_interest: string
-  linkedin_url: string
-  bio: string | null
-  skills: string
-  phone: string
-  photo_url: string
-  gravatar_url: string
-  show_email: boolean
-  show_phone: boolean
-  updated_at: string | null
-}
-
-async function fetchProfile(): Promise<Profile> {
-  const res = await fetch("/api/members/profile", { credentials: "include" })
-  if (!res.ok) throw new Error("Failed to load profile")
-  return res.json()
-}
+import {
+  fetchMemberProfile,
+  MEMBER_PROFILE_QUERY_KEY,
+  type MemberProfile as Profile,
+} from "@/hooks/useMemberProfile"
 
 async function resyncProfile(): Promise<Profile & { synced: number }> {
   const res = await fetch("/api/members/profile/resync", {
@@ -79,8 +58,8 @@ function ProfileSkeleton() {
 export default function Profile() {
   const queryClient = useQueryClient()
   const { data: profile, isLoading, isError } = useQuery<Profile>({
-    queryKey: ["profile"],
-    queryFn: fetchProfile,
+    queryKey: MEMBER_PROFILE_QUERY_KEY,
+    queryFn: fetchMemberProfile,
   })
 
   const [form, setForm] = useState<Partial<Profile>>({})
@@ -110,7 +89,7 @@ export default function Profile() {
   const saveMutation = useMutation({
     mutationFn: updateProfile,
     onSuccess: (data) => {
-      queryClient.setQueryData(["profile"], data)
+      queryClient.setQueryData(MEMBER_PROFILE_QUERY_KEY, data)
       setDirty(false)
       toast.success("Profile saved")
     },
@@ -120,7 +99,7 @@ export default function Profile() {
   const resyncMutation = useMutation({
     mutationFn: resyncProfile,
     onSuccess: (data) => {
-      queryClient.setQueryData(["profile"], data)
+      queryClient.setQueryData(MEMBER_PROFILE_QUERY_KEY, data)
       const n = data.synced
       if (n > 0) {
         toast.success(`Synced ${n} field${n !== 1 ? "s" : ""} from membership data`)
