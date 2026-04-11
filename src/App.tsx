@@ -11,6 +11,7 @@ import NotFound from "@/pages/NotFound"
 import ChatInsights from "@/pages/members/ChatInsights"
 import Directory from "@/pages/members/Directory"
 import Profile from "@/pages/members/Profile"
+import WhatsTalked from "@/pages/members/WhatsTalked"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,16 @@ function App() {
                   <ProtectedRoute>
                     <MembersLayout>
                       <ChatInsights />
+                    </MembersLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/members/whats-talked"
+                element={
+                  <ProtectedRoute>
+                    <MembersLayout>
+                      <WhatsTalked />
                     </MembersLayout>
                   </ProtectedRoute>
                 }
