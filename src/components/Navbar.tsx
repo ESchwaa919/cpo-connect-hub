@@ -27,6 +27,7 @@ const publicLinks = [
 
 const memberLinks = [
   { label: "Chat Insights", to: "/members/chat-insights" },
+  { label: "What's Talked", to: "/members/whats-talked" },
   { label: "Directory", to: "/members/directory" },
   { label: "Profile", to: "/members/profile" },
 ]

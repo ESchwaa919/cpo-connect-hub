@@ -9,32 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
-
-interface Profile {
-  email: string
-  name: string
-  role: string
-  current_org: string
-  sector: string
-  location: string
-  focus_areas: string
-  areas_of_interest: string
-  linkedin_url: string
-  bio: string | null
-  skills: string
-  phone: string
-  photo_url: string
-  gravatar_url: string
-  show_email: boolean
-  show_phone: boolean
-  updated_at: string | null
-}
-
-async function fetchProfile(): Promise<Profile> {
-  const res = await fetch("/api/members/profile", { credentials: "include" })
-  if (!res.ok) throw new Error("Failed to load profile")
-  return res.json()
-}
+import {
+  fetchMemberProfile,
+  MEMBER_PROFILE_QUERY_KEY,
+  type MemberProfile as Profile,
+} from "@/hooks/useMemberProfile"
 
 async function resyncProfile(): Promise<Profile & { synced: number }> {
   const res = await fetch("/api/members/profile/resync", {
@@ -79,8 +58,8 @@ function ProfileSkeleton() {
 export default function Profile() {
   const queryClient = useQueryClient()
   const { data: profile, isLoading, isError } = useQuery<Profile>({
-    queryKey: ["profile"],
-    queryFn: fetchProfile,
+    queryKey: MEMBER_PROFILE_QUERY_KEY,
+    queryFn: fetchMemberProfile,
   })
 
   const [form, setForm] = useState<Partial<Profile>>({})
@@ -102,6 +81,8 @@ export default function Profile() {
         phone: profile.phone,
         show_email: profile.show_email,
         show_phone: profile.show_phone,
+        chat_identification_opted_out: profile.chat_identification_opted_out,
+        chat_query_logging_opted_out: profile.chat_query_logging_opted_out,
       })
       setDirty(false)
     }
@@ -110,7 +91,7 @@ export default function Profile() {
   const saveMutation = useMutation({
     mutationFn: updateProfile,
     onSuccess: (data) => {
-      queryClient.setQueryData(["profile"], data)
+      queryClient.setQueryData(MEMBER_PROFILE_QUERY_KEY, data)
       setDirty(false)
       toast.success("Profile saved")
     },
@@ -120,7 +101,7 @@ export default function Profile() {
   const resyncMutation = useMutation({
     mutationFn: resyncProfile,
     onSuccess: (data) => {
-      queryClient.setQueryData(["profile"], data)
+      queryClient.setQueryData(MEMBER_PROFILE_QUERY_KEY, data)
       const n = data.synced
       if (n > 0) {
         toast.success(`Synced ${n} field${n !== 1 ? "s" : ""} from membership data`)
@@ -314,6 +295,52 @@ export default function Profile() {
                     <span className="text-xs text-muted-foreground">Show on my directory card</span>
                   </label>
                 </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border/50 pt-4 scroll-mt-20" id="chat-search-privacy">
+              <h3 className="text-sm font-medium mb-3">Chat Search Privacy</h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                These settings control how the "What's Everyone Talking About" chat-search feature handles your identity and your questions.
+              </p>
+              <div className="space-y-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!(form.chat_identification_opted_out ?? false)}
+                    onChange={(e) =>
+                      onChange("chat_identification_opted_out", !e.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-border"
+                    data-testid="chat-identification-toggle"
+                  />
+                  <span>
+                    <span className="text-sm font-medium">Show my name in chat search answers</span>
+                    <span className="block text-xs text-muted-foreground">
+                      When on, other members can see your name next to messages you wrote
+                      in the chat search feature. When off, you appear as "A member".
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!(form.chat_query_logging_opted_out ?? false)}
+                    onChange={(e) =>
+                      onChange("chat_query_logging_opted_out", !e.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-border"
+                    data-testid="chat-query-logging-toggle"
+                  />
+                  <span>
+                    <span className="text-sm font-medium">Log my questions to improve chat search</span>
+                    <span className="block text-xs text-muted-foreground">
+                      When on, we log the text of your questions to help us improve the
+                      feature. When off, only question metadata (length, channel) is
+                      logged — never the question text.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
           </CardContent>

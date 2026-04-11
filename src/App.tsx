@@ -6,11 +6,14 @@ import { AuthProvider } from "@/contexts/AuthContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { MembersLayout } from "@/components/members/MembersLayout"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { WhatsTalkedErrorFallback } from "@/components/members/whats-talked/WhatsTalkedErrorFallback"
 import Index from "@/pages/Index"
 import NotFound from "@/pages/NotFound"
 import ChatInsights from "@/pages/members/ChatInsights"
 import Directory from "@/pages/members/Directory"
 import Profile from "@/pages/members/Profile"
+import WhatsTalked from "@/pages/members/WhatsTalked"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +47,18 @@ function App() {
                   <ProtectedRoute>
                     <MembersLayout>
                       <ChatInsights />
+                    </MembersLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/members/whats-talked"
+                element={
+                  <ProtectedRoute>
+                    <MembersLayout>
+                      <ErrorBoundary fallback={<WhatsTalkedErrorFallback />}>
+                        <WhatsTalked />
+                      </ErrorBoundary>
                     </MembersLayout>
                   </ProtectedRoute>
                 }
