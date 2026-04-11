@@ -573,6 +573,10 @@ dbDescribe('ingestHandler', () => {
     }
     expect(body.ingested).toBe(1)
     expect(body.skipped).toBe(0)
+    // runId is numeric per the spec's public API shape (not a bigint
+    // string). Codex pass 3 IMPORTANT.
+    expect(typeof body.runId).toBe('number')
+    expect(Number.isInteger(body.runId)).toBe(true)
 
     // Row present in chat_messages
     const msgResult = await pool.query(
@@ -1148,5 +1152,206 @@ dbDescribe('ingestionRunsHandler', () => {
     }
     const run = body.runs.find((r) => r.id === unknownRunId)
     expect(run?.triggeredBy).toBe(unknownEmail)
+  })
+})
+
+// -----------------------------------------------------------------------------
+// End-to-end privacy: ingest → ask → toggle opt-out → ask again
+//
+// This is the test codex pass 3 flagged as MISSING all along. It proves the
+// full privacy contract:
+//
+//   1. Ingest wires authorReconciliation, so chat_messages.author_email is
+//      populated from the WhatsApp sender name matched to member_profiles
+//   2. Before the member toggles opt-out, their real name appears in source
+//      cards
+//   3. After they toggle chat_identification_opted_out = true, their name is
+//      redacted to 'A member' in every subsequent ask response
+//
+// Without the fix shipped in this PR, step 1 never happens (author_email
+// was never set), the LEFT JOIN on author_email always returned NULL, and
+// the opt-out flag was silently ignored. This test would fail on main.
+// -----------------------------------------------------------------------------
+
+dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
+  const memberName = `WETA Privacy Test ${randomUUID()}`
+  const memberEmail = `weta-privacy-${randomUUID()}@test.local`
+  const askerEmail = `weta-privacy-asker-${randomUUID()}@test.local`
+  const testSourceExport = `weta-privacy-test-${randomUUID()}`
+  const testMonth = '2998-11'
+  const insertedMessageIds: string[] = []
+
+  beforeAll(async () => {
+    // Member whose messages are ingested. chat_identification_opted_out
+    // starts false (identifiable).
+    await pool.query(
+      `INSERT INTO cpo_connect.member_profiles (email, name)
+       VALUES ($1, $2)
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name,
+         chat_identification_opted_out = false,
+         chat_query_logging_opted_out = false`,
+      [memberEmail, memberName],
+    )
+
+    // Separate asker member for the /ask call (required so trackEvent has
+    // a valid asker email). Must NOT match any ingested author name.
+    await pool.query(
+      `INSERT INTO cpo_connect.member_profiles (email, name)
+       VALUES ($1, 'Privacy Test Asker')
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name`,
+      [askerEmail],
+    )
+  })
+
+  afterAll(async () => {
+    if (insertedMessageIds.length > 0) {
+      await pool.query(
+        `DELETE FROM cpo_connect.chat_messages WHERE id = ANY($1::bigint[])`,
+        [insertedMessageIds],
+      )
+    }
+    await pool.query(
+      `DELETE FROM cpo_connect.chat_ingestion_runs
+       WHERE $1 = ANY(source_months)`,
+      [testMonth],
+    )
+    await pool.query(
+      `DELETE FROM cpo_connect.member_profiles WHERE email IN ($1, $2)`,
+      [memberEmail, askerEmail],
+    )
+  })
+
+  beforeEach(() => {
+    mocks.embedQueryMock.mockReset()
+    mocks.synthesizeAnswerMock.mockReset()
+  })
+
+  it('opt-out flag redacts the member name end-to-end after ingest via reconciliation', async () => {
+    // ------------------------------------------------------------
+    // Step 1 — INGEST a message authored by `memberName`. The
+    // reconcileAuthorEmails pass should match it to `memberEmail`.
+    // ------------------------------------------------------------
+    const uniqueText = `weta-privacy-message-${randomUUID()}`
+    const ingestReq = makeReq({
+      body: {
+        month: testMonth,
+        sourceExports: [testSourceExport],
+        messages: [
+          {
+            channel: 'leadership_culture',
+            authorName: memberName,
+            messageText: uniqueText,
+            sentAt: '2998-11-01T10:00:00.000Z',
+            sourceExport: testSourceExport,
+            embedding: fixedVector(0.42),
+          },
+        ],
+      },
+      user: { id: 's', email: 'script:ingest', name: 'Script' },
+    })
+    const ingestRes = makeRes()
+    await ingestHandler(ingestReq, ingestRes)
+    expect(ingestRes.status).toHaveBeenCalledWith(200)
+
+    // Verify chat_messages.author_email was populated from reconciliation
+    // — this is the BLOCKER fix from codex pass 3.
+    const inserted = await pool.query<{
+      id: string
+      author_email: string | null
+      author_name: string
+    }>(
+      `SELECT id::text, author_email, author_name FROM cpo_connect.chat_messages
+       WHERE message_text = $1`,
+      [uniqueText],
+    )
+    expect(inserted.rows.length).toBe(1)
+    expect(inserted.rows[0].author_email).toBe(memberEmail)
+    expect(inserted.rows[0].author_name).toBe(memberName)
+    insertedMessageIds.push(inserted.rows[0].id)
+
+    // ------------------------------------------------------------
+    // Step 2 — ASK while opt-out is FALSE. Real name appears in sources.
+    // ------------------------------------------------------------
+    await pool.query(
+      `UPDATE cpo_connect.member_profiles
+         SET chat_identification_opted_out = false
+       WHERE email = $1`,
+      [memberEmail],
+    )
+
+    mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.42))
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'The community discussed pricing strategy.',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const askBeforeReq = makeReq({
+      body: { query: 'pricing', channel: 'leadership_culture', limit: 5 },
+      user: { id: 's', email: askerEmail, name: 'Asker' },
+    })
+    const askBeforeRes = makeRes()
+    await askHandler(askBeforeReq, askBeforeRes)
+
+    const beforeBody = bodyOf(askBeforeRes) as {
+      sources: Array<{
+        authorDisplayName: string
+        authorOptedOut: boolean
+        messageText: string
+      }>
+    }
+
+    const ourSourceBefore = beforeBody.sources.find(
+      (s) => s.messageText === uniqueText,
+    )
+    expect(ourSourceBefore).toBeDefined()
+    // Before opt-out: real name, not redacted
+    expect(ourSourceBefore?.authorDisplayName).toBe(memberName)
+    expect(ourSourceBefore?.authorOptedOut).toBe(false)
+
+    // ------------------------------------------------------------
+    // Step 3 — TOGGLE opt-out to TRUE.
+    // ------------------------------------------------------------
+    await pool.query(
+      `UPDATE cpo_connect.member_profiles
+         SET chat_identification_opted_out = true
+       WHERE email = $1`,
+      [memberEmail],
+    )
+
+    // ------------------------------------------------------------
+    // Step 4 — ASK AGAIN. The same message must now render as 'A member'.
+    // ------------------------------------------------------------
+    mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.42))
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'A member discussed pricing strategy.',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const askAfterReq = makeReq({
+      body: { query: 'pricing', channel: 'leadership_culture', limit: 5 },
+      user: { id: 's', email: askerEmail, name: 'Asker' },
+    })
+    const askAfterRes = makeRes()
+    await askHandler(askAfterReq, askAfterRes)
+
+    const afterBody = bodyOf(askAfterRes) as {
+      sources: Array<{
+        authorDisplayName: string
+        authorOptedOut: boolean
+        messageText: string
+      }>
+    }
+
+    const ourSourceAfter = afterBody.sources.find(
+      (s) => s.messageText === uniqueText,
+    )
+    expect(ourSourceAfter).toBeDefined()
+    // After opt-out: name IS redacted to 'A member' and the flag is set
+    expect(ourSourceAfter?.authorDisplayName).toBe('A member')
+    expect(ourSourceAfter?.authorOptedOut).toBe(true)
+    // Belt-and-suspenders: the real name should not appear anywhere in
+    // the sources array of the post-opt-out response.
+    const allDisplayNames = afterBody.sources.map((s) => s.authorDisplayName)
+    expect(allDisplayNames).not.toContain(memberName)
   })
 })

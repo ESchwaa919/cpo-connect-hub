@@ -14,6 +14,10 @@ import {
   SynthesisUnavailableError,
   type SynthesisSource,
 } from '../services/chatSynthesis.ts'
+import {
+  matchAuthor,
+  type ProfileMatchCandidate,
+} from '../services/authorReconciliation.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 /** Stable short codes for WETA route responses. Used by the frontend to
@@ -273,6 +277,13 @@ interface IngestPromptTileBody {
 
 const MESSAGE_BATCH_SIZE = 100
 
+/** In-memory shape used by the batch insert. Carries the reconciled
+ *  `authorEmail` (or null) alongside the raw IngestMessageBody so the
+ *  insert SQL can persist both columns. */
+interface ReconciledIngestMessage extends IngestMessageBody {
+  authorEmail: string | null
+}
+
 function contentHash(m: IngestMessageBody): string {
   return createHash('sha256')
     .update(`${m.channel}|${m.authorName}|${m.sentAt}|${m.messageText}`)
@@ -292,7 +303,7 @@ function isValidIngestMessage(m: IngestMessageBody): boolean {
 }
 
 async function batchInsertMessages(
-  messages: IngestMessageBody[],
+  messages: ReconciledIngestMessage[],
 ): Promise<number> {
   if (messages.length === 0) return 0
 
@@ -304,11 +315,12 @@ async function batchInsertMessages(
     for (const m of chunk) {
       const base = params.length
       values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::vector)`,
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::vector)`,
       )
       params.push(
         m.channel,
         m.authorName,
+        m.authorEmail,
         m.messageText,
         m.sentAt,
         m.sourceExport,
@@ -318,7 +330,7 @@ async function batchInsertMessages(
     }
     const result = await pool.query(
       `INSERT INTO cpo_connect.chat_messages
-         (channel, author_name, message_text, sent_at, source_export, content_hash, embedding)
+         (channel, author_name, author_email, message_text, sent_at, source_export, content_hash, embedding)
        VALUES ${values.join(',')}
        ON CONFLICT (content_hash) DO NOTHING`,
       params,
@@ -326,6 +338,27 @@ async function batchInsertMessages(
     totalInserted += result.rowCount ?? 0
   }
   return totalInserted
+}
+
+/** Reads the member directory ONCE per ingest run and resolves each
+ *  message's `authorName` to an email (or null). Phone-number senders,
+ *  guests, and ambiguous names all resolve to null — `chat_messages.author_name`
+ *  still holds the raw WhatsApp name so the UI can show something. */
+async function reconcileAuthorEmails(
+  messages: IngestMessageBody[],
+): Promise<ReconciledIngestMessage[]> {
+  if (messages.length === 0) return []
+
+  const directoryResult = await pool.query<ProfileMatchCandidate>(
+    `SELECT email, name FROM cpo_connect.member_profiles
+     WHERE email IS NOT NULL AND name IS NOT NULL`,
+  )
+  const directory = directoryResult.rows
+
+  return messages.map((m) => ({
+    ...m,
+    authorEmail: matchAuthor(m.authorName, directory),
+  }))
 }
 
 /** Atomic replace of scope='current' prompt tiles. DELETE + INSERT run
@@ -376,7 +409,7 @@ export async function ingestHandler(
   res: Response,
 ): Promise<void> {
   const startedAt = Date.now()
-  let runId: string | null = null
+  let runId: number | null = null
 
   try {
     const month = typeof req.body?.month === 'string' ? req.body.month : ''
@@ -407,13 +440,20 @@ export async function ingestHandler(
       `INSERT INTO cpo_connect.chat_ingestion_runs
          (triggered_by_email, source_months, status)
        VALUES ($1, $2, 'running')
-       RETURNING id::text`,
+       RETURNING id`,
       [req.user!.email, [month]],
     )
-    runId = runResult.rows[0].id
+    // pg returns bigint as string by default; coerce to Number for the
+    // public API shape (spec requires runId to be numeric).
+    runId = Number(runResult.rows[0].id)
 
     const validMessages = messages.filter(isValidIngestMessage)
-    const ingested = await batchInsertMessages(validMessages)
+    // Reconcile WhatsApp sender names to member_profiles emails in one
+    // directory lookup so the identification opt-out flag actually
+    // gets honored at query time. Phone-number senders and unknown
+    // names return null and keep only the raw `author_name`.
+    const reconciled = await reconcileAuthorEmails(validMessages)
+    const ingested = await batchInsertMessages(reconciled)
     // skipped = validation drops + dedup drops. Because ingested counts
     // only actually-inserted rows, the remainder of messages.length is
     // either a validation miss or a content_hash conflict. Reporting
@@ -430,7 +470,7 @@ export async function ingestHandler(
              run_completed_at = NOW(),
              messages_ingested = $2,
              messages_skipped = $3
-       WHERE id = $1::bigint`,
+       WHERE id = $1`,
       [runId, ingested, skipped],
     )
 
@@ -449,7 +489,7 @@ export async function ingestHandler(
              SET status = 'failed',
                  run_completed_at = NOW(),
                  error_message = $2
-           WHERE id = $1::bigint`,
+           WHERE id = $1`,
           [runId, (err as Error).message],
         )
         .catch(() => {})
