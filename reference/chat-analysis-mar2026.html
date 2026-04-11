@@ -147,13 +147,17 @@
   <p class="subtitle">March 2026 Chat Analysis &middot; 1 &ndash; 31 Mar 2026</p>
   <p class="prev-nav"><a href="./chat-analysis-feb2026.html">&larr; February 2026</a></p>
 
-  <!-- Aggregate stats -->
+  <!-- Aggregate stats — template MUST match the Feb report's 5-stat
+       shape per reference/README.md. The New Members count is
+       backfilled from the Google Sheet; run
+       `npx tsx scripts/extract-retrofit-data.ts` to recompute. -->
   <div class="stats-row">
     <div class="stat"><div class="number">702</div><div class="label">Total Messages</div></div>
     <div class="stat"><div class="number">3</div><div class="label">Channels</div></div>
     <div class="stat"><div class="number">31</div><div class="label">Active Days</div></div>
+    <!-- TODO(THE-553): backfill from Sheet — see extract-retrofit-data.ts -->
+    <div class="stat"><div class="number">&mdash;</div><div class="label">New Members</div></div>
     <div class="stat"><div class="number">110+</div><div class="label">Active Members</div></div>
-    <div class="stat"><div class="number">&minus;53%</div><div class="label">Volume vs Feb</div></div>
   </div>
 
   <!-- Channel tabs -->
@@ -170,7 +174,8 @@
       <div class="stat"><div class="number">379</div><div class="label">Messages</div></div>
       <div class="stat"><div class="number">56</div><div class="label">Active Members</div></div>
       <div class="stat"><div class="number">29</div><div class="label">Active Days</div></div>
-      <div class="stat"><div class="number">&minus;53%</div><div class="label">vs February</div></div>
+      <!-- TODO(THE-553): backfill from Sheet — see extract-retrofit-data.ts -->
+      <div class="stat"><div class="number">&mdash;</div><div class="label">New Members</div></div>
     </div>
 
     <div class="card">
@@ -268,7 +273,8 @@
       <div class="stat"><div class="number">202</div><div class="label">Messages</div></div>
       <div class="stat"><div class="number">57</div><div class="label">Active Members</div></div>
       <div class="stat"><div class="number">18</div><div class="label">Active Days</div></div>
-      <div class="stat"><div class="number">&minus;65%</div><div class="label">vs February</div></div>
+      <!-- TODO(THE-553): backfill from Sheet — see extract-retrofit-data.ts -->
+      <div class="stat"><div class="number">&mdash;</div><div class="label">New Members</div></div>
     </div>
 
     <div class="card">
@@ -366,7 +372,8 @@
       <div class="stat"><div class="number">121</div><div class="label">Messages</div></div>
       <div class="stat"><div class="number">23</div><div class="label">Active Members</div></div>
       <div class="stat"><div class="number">18</div><div class="label">Active Days</div></div>
-      <div class="stat"><div class="number">+38%</div><div class="label">vs February</div></div>
+      <!-- TODO(THE-553): backfill from Sheet — see extract-retrofit-data.ts -->
+      <div class="stat"><div class="number">&mdash;</div><div class="label">New Members</div></div>
     </div>
 
     <div class="card">
@@ -511,6 +518,9 @@ new Chart(document.getElementById('dailyChartAI'), {
 new Chart(document.getElementById('contributorsAI'), {
   type: 'doughnut',
   data: {
+    // TODO(THE-553): resolve phone-suffix label(s) via
+    // scripts/extract-retrofit-data.ts — the Sheet has the
+    // authoritative phone → name mapping.
     labels: ['Dave Killeen','Harry Parkes','Matt Stone','Sascha Brossmann','Erik Schwartz','Joana','Caroline Clark','Member ···9211','Ryan','Jason Knight','Others'],
     datasets: [{
       data: [44,42,26,25,25,22,16,16,13,13,137],
@@ -531,11 +541,11 @@ new Chart(document.getElementById('contributorsAI'), {
 new Chart(document.getElementById('sentimentAI'), {
   type: 'polarArea',
   data: {
-    labels: ['Practical / Balanced','Skeptical / Critical','Enthusiastic / Optimistic','Philosophical / Cautious','Humorous / Social'],
+    labels: ['Enthusiastic / Optimistic','Practical / Balanced','Skeptical / Critical','Philosophical / Cautious','Humorous / Social'],
     datasets: [{
-      data: [32,25,20,15,8],
+      data: [20,32,25,15,8],
       backgroundColor: [
-        'rgba(96,165,250,0.5)','rgba(248,113,113,0.5)','rgba(52,211,153,0.5)','rgba(167,139,250,0.5)','rgba(251,191,36,0.5)'
+        'rgba(52,211,153,0.5)','rgba(96,165,250,0.5)','rgba(248,113,113,0.5)','rgba(167,139,250,0.5)','rgba(251,191,36,0.5)'
       ],
       borderWidth: 0,
     }]
@@ -575,6 +585,9 @@ new Chart(document.getElementById('dailyChartGeneral'), {
 new Chart(document.getElementById('contributorsGeneral'), {
   type: 'doughnut',
   data: {
+    // TODO(THE-553): resolve phone-suffix label(s) via
+    // scripts/extract-retrofit-data.ts — the Sheet has the
+    // authoritative phone → name mapping.
     labels: ['Sascha Brossmann','Howard','Robin','Sarah Baker-White','Member ···4106','Caroline Clark','Jason Knight','Harry Parkes','Joana','Member ···1055','Others'],
     datasets: [{
       data: [16,14,12,10,10,9,8,6,6,6,105],
@@ -595,11 +608,11 @@ new Chart(document.getElementById('contributorsGeneral'), {
 new Chart(document.getElementById('sentimentGeneral'), {
   type: 'polarArea',
   data: {
-    labels: ['Practical / Balanced','Humorous / Social','Philosophical / Cautious','Skeptical / Critical','Enthusiastic / Optimistic'],
+    labels: ['Practical / Balanced','Enthusiastic / Optimistic','Philosophical / Cautious','Skeptical / Critical','Humorous / Social'],
     datasets: [{
-      data: [35,22,18,15,10],
+      data: [35,10,18,15,22],
       backgroundColor: [
-        'rgba(96,165,250,0.5)','rgba(251,191,36,0.5)','rgba(167,139,250,0.5)','rgba(248,113,113,0.5)','rgba(52,211,153,0.5)'
+        'rgba(96,165,250,0.5)','rgba(52,211,153,0.5)','rgba(167,139,250,0.5)','rgba(248,113,113,0.5)','rgba(251,191,36,0.5)'
       ],
       borderWidth: 0,
     }]
@@ -659,11 +672,11 @@ new Chart(document.getElementById('contributorsLeadership'), {
 new Chart(document.getElementById('sentimentLeadership'), {
   type: 'polarArea',
   data: {
-    labels: ['Philosophical / Cautious','Practical / Balanced','Personal / Vulnerable','Enthusiastic / Optimistic','Skeptical / Critical'],
+    labels: ['Practical / Balanced','Philosophical / Cautious','Enthusiastic / Optimistic','Humorous / Social','Skeptical / Critical'],
     datasets: [{
-      data: [35,25,20,12,8],
+      data: [30,45,12,5,8],
       backgroundColor: [
-        'rgba(167,139,250,0.5)','rgba(96,165,250,0.5)','rgba(244,114,182,0.5)','rgba(52,211,153,0.5)','rgba(248,113,113,0.5)'
+        'rgba(96,165,250,0.5)','rgba(167,139,250,0.5)','rgba(52,211,153,0.5)','rgba(251,191,36,0.5)','rgba(248,113,113,0.5)'
       ],
       borderWidth: 0,
     }]
