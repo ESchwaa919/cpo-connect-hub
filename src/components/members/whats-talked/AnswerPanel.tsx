@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   AlertCircle,
   Clock,
@@ -23,15 +23,24 @@ interface AnswerPanelProps {
   state: AnswerPanelState
   onRetry: () => void
   /** Stable identifier for the current ask (parent derives from query +
-   *  channel). Changes ⇒ focus moves to the answer heading so keyboard
-   *  and screen-reader users land on the new response. Same value ⇒
-   *  focus stays wherever the user moved it. */
+   *  channel + submission counter). Changes ⇒ focus moves to the answer
+   *  heading so keyboard and screen-reader users land on the new
+   *  response, even on same-query resubmits. */
   focusKey: string
+  /** Current seconds remaining on the shared rate-limit countdown, or
+   *  null when no cooldown is active. Lifted to the parent so both
+   *  AskForm and AnswerPanel show the same value. */
+  countdownRemaining: number | null
 }
 
 export type { AnswerPanelState }
 
-export function AnswerPanel({ state, onRetry, focusKey }: AnswerPanelProps) {
+export function AnswerPanel({
+  state,
+  onRetry,
+  focusKey,
+  countdownRemaining,
+}: AnswerPanelProps) {
   const answerHeadingRef = useRef<HTMLHeadingElement>(null)
   const lastFocusedKeyRef = useRef<string | null>(null)
 
@@ -52,7 +61,11 @@ export function AnswerPanel({ state, onRetry, focusKey }: AnswerPanelProps) {
     <div aria-live="polite" aria-busy={isLoading}>
       {isLoading ? <LoadingCard /> : null}
       {state.kind === 'error' ? (
-        <ErrorCard error={state.error} onRetry={onRetry} />
+        <ErrorCard
+          error={state.error}
+          onRetry={onRetry}
+          countdownRemaining={countdownRemaining}
+        />
       ) : null}
       {state.kind === 'success' ? (
         state.response.answer === null ? (
@@ -152,11 +165,16 @@ function ZeroMatchCard({ message }: { message?: string }) {
 function ErrorCard({
   error,
   onRetry,
+  countdownRemaining,
 }: {
   error: ChatAskError
   onRetry: () => void
+  countdownRemaining: number | null
 }) {
   const details = explainError(error)
+  const hasCountdown = details.retryAfterSec !== undefined
+  const locked =
+    hasCountdown && countdownRemaining !== null && countdownRemaining > 0
   return (
     <Card className="border-destructive/50 bg-destructive/5" role="alert">
       <CardContent className="flex flex-col gap-3 p-6">
@@ -174,8 +192,27 @@ function ErrorCard({
             </p>
           </div>
         </div>
-        {details.retryAfterSec !== undefined ? (
-          <RetryCountdown seconds={details.retryAfterSec} onRetry={onRetry} />
+        {hasCountdown ? (
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={locked}
+              onClick={onRetry}
+            >
+              {locked ? (
+                <>
+                  <TimerReset className="mr-2 h-4 w-4" />
+                  Retry in {countdownRemaining}s
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Try again
+                </>
+              )}
+            </Button>
+          </div>
         ) : details.canRetry ? (
           <div>
             <Button size="sm" variant="outline" onClick={onRetry}>
@@ -239,47 +276,3 @@ function explainError(err: ChatAskError): ErrorDetails {
   }
 }
 
-function RetryCountdown({
-  seconds,
-  onRetry,
-}: {
-  seconds: number
-  onRetry: () => void
-}) {
-  const [remaining, setRemaining] = useState(() =>
-    Math.max(0, Math.ceil(seconds)),
-  )
-
-  useEffect(() => {
-    setRemaining(Math.max(0, Math.ceil(seconds)))
-  }, [seconds])
-
-  useEffect(() => {
-    if (remaining <= 0) return
-    const id = setTimeout(() => setRemaining((n) => n - 1), 1000)
-    return () => clearTimeout(id)
-  }, [remaining])
-
-  return (
-    <div className="flex items-center gap-3">
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={remaining > 0}
-        onClick={onRetry}
-      >
-        {remaining > 0 ? (
-          <>
-            <TimerReset className="mr-2 h-4 w-4" />
-            Retry in {remaining}s
-          </>
-        ) : (
-          <>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Try again
-          </>
-        )}
-      </Button>
-    </div>
-  )
-}

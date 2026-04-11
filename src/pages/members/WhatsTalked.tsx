@@ -128,10 +128,49 @@ export default function WhatsTalked() {
     retry: false,
   })
 
+  // Monotonic submission counter — feeds `focusKey` so consecutive
+  // submits of the same query still move focus to the answer heading.
+  const [submissionCount, setSubmissionCount] = useState(0)
+
+  // Rate-limit countdown, lifted to the page level so AskForm and
+  // AnswerPanel can both read it. Restarts whenever the ask query
+  // produces a new error carrying a `retryAfterSec`.
+  const [rateLimitWaitSec, setRateLimitWaitSec] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (
+      askQuery.isError &&
+      askQuery.error instanceof ChatAskError &&
+      askQuery.error.retryAfterSec !== undefined
+    ) {
+      setRateLimitWaitSec(Math.max(0, Math.ceil(askQuery.error.retryAfterSec)))
+    } else if (askQuery.isSuccess || askQuery.isPending) {
+      setRateLimitWaitSec(null)
+    }
+    // `errorUpdatedAt` changes on every new error occurrence and is the
+    // canonical signal — no need to also depend on `error` (ref-stable).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askQuery.errorUpdatedAt, askQuery.isError, askQuery.isSuccess, askQuery.isPending])
+
+  useEffect(() => {
+    if (rateLimitWaitSec === null || rateLimitWaitSec <= 0) return
+    const id = setTimeout(() => {
+      setRateLimitWaitSec((n) => (n === null ? null : n - 1))
+    }, 1000)
+    return () => clearTimeout(id)
+  }, [rateLimitWaitSec])
+
+  // Show the loading card whenever a request is in flight — including
+  // the refetch() path. Users should see a spinner on every round-trip
+  // to Gemini/Claude, not just the first one. We use `isFetching` (not
+  // `isPending`) because a disabled query with no data reports
+  // isPending=true even when no request is running.
+  const isLoading = askQuery.isFetching
+
   const answerState: AnswerPanelState =
     activeQuery.length === 0
       ? { kind: 'idle' }
-      : askQuery.isPending
+      : isLoading
         ? { kind: 'loading' }
         : askQuery.isError
           ? { kind: 'error', error: askQuery.error }
@@ -161,6 +200,10 @@ export default function WhatsTalked() {
       // prior questions the way the spec calls out.
       { replace: false },
     )
+    // Bump the submission counter so focus moves to the answer heading
+    // on every submit, including same-query resubmits where the query
+    // key wouldn't otherwise change.
+    setSubmissionCount((c) => c + 1)
     // Force a fresh network call when the query key won't change on its
     // own (e.g. re-asking the same question to pick up newly ingested
     // conversations). The 5-minute staleTime still serves the back
@@ -254,7 +297,13 @@ export default function WhatsTalked() {
         value={draftQuery}
         onChange={setDraftQuery}
         onSubmit={runAsk}
-        loading={askQuery.isFetching}
+        loading={isLoading}
+        disabled={rateLimitWaitSec !== null && rateLimitWaitSec > 0}
+        disabledReason={
+          rateLimitWaitSec !== null && rateLimitWaitSec > 0
+            ? `Retry in ${rateLimitWaitSec}s`
+            : undefined
+        }
       />
 
       {answerState.kind === 'idle' ? (
@@ -263,7 +312,8 @@ export default function WhatsTalked() {
         <AnswerPanel
           state={answerState}
           onRetry={handleRetry}
-          focusKey={`${activeQuery}|${channel}`}
+          focusKey={`${activeQuery}|${channel}|${submissionCount}`}
+          countdownRemaining={rateLimitWaitSec}
         />
       )}
     </div>

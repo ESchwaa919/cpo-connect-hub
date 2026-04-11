@@ -11,6 +11,10 @@ interface AskFormProps {
   onSubmit: (query: string) => void
   disabled?: boolean
   loading?: boolean
+  /** Human-readable reason to show next to the submit button when the
+   *  form is disabled for an external reason (e.g. rate-limit cooldown
+   *  "Retry in 3s"). Also replaces the submit button label text. */
+  disabledReason?: string
 }
 
 export function AskForm({
@@ -19,10 +23,12 @@ export function AskForm({
   onSubmit,
   disabled,
   loading,
+  disabledReason,
 }: AskFormProps) {
   const trimmed = value.trim()
   const tooLong = trimmed.length > MAX_QUERY_LENGTH
-  const canSubmit = !disabled && !loading && trimmed.length > 0 && !tooLong
+  const isLocked = disabled === true || loading === true
+  const canSubmit = !isLocked && trimmed.length > 0 && !tooLong
 
   function handleSubmit(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault()
@@ -46,7 +52,8 @@ export function AskForm({
         placeholder="Ask the group chat anything... (Enter to submit, Shift+Enter for a new line)"
         rows={3}
         maxLength={MAX_QUERY_LENGTH * 2}
-        disabled={disabled || loading}
+        disabled={isLocked}
+        aria-disabled={isLocked}
         aria-label="Your question for the group chat"
         aria-invalid={tooLong}
         className="resize-none"
@@ -70,6 +77,8 @@ export function AskForm({
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Searching…
             </>
+          ) : disabledReason ? (
+            disabledReason
           ) : (
             <>
               <Send className="mr-2 h-4 w-4" />

@@ -18,7 +18,9 @@ export function ChannelTabs({ value, onChange }: ChannelTabsProps) {
       className="w-full"
     >
       <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
-        <TabsTrigger value={ALL_CHANNELS_ID}>All channels</TabsTrigger>
+        <TabsTrigger value={ALL_CHANNELS_ID}>
+          All {CHAT_CHANNELS.length} channels
+        </TabsTrigger>
         {CHAT_CHANNELS.map((c) => (
           <TabsTrigger key={c.id} value={c.id}>
             {c.label}
