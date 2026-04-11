@@ -41,15 +41,16 @@ const TIMESTAMP_FORMAT = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 })
 
+function isValidIsoDate(iso: string | null | undefined): iso is string {
+  if (!iso) return false
+  return !Number.isNaN(new Date(iso).getTime())
+}
+
 function formatTimestamp(iso: string | null): string {
-  // Empty-string (backend `toIsoOrEmpty` on a NULL corpus aggregate) and
-  // null both render as an em-dash.
-  if (!iso) return '—'
-  const d = new Date(iso)
-  // `new Date('garbage')` returns an Invalid Date (NaN getTime) rather
-  // than throwing, so guard explicitly before formatting.
-  if (Number.isNaN(d.getTime())) return '—'
-  return TIMESTAMP_FORMAT.format(d)
+  // Empty-string (backend `toIsoOrEmpty` on a NULL corpus aggregate),
+  // null, and unparseable input all render as an em-dash.
+  if (!isValidIsoDate(iso)) return '—'
+  return TIMESTAMP_FORMAT.format(new Date(iso))
 }
 
 function formatNumber(n: number): string {
@@ -126,7 +127,15 @@ function Body({ data }: { data: IngestionHistoryResponse }) {
           <AggregateCard
             icon={<Clock className="h-4 w-4" aria-hidden="true" />}
             label="Latest message"
-            value={formatTimestamp(data.latestMessageAt)}
+            value={
+              isValidIsoDate(data.latestMessageAt) ? (
+                <time dateTime={data.latestMessageAt}>
+                  {formatTimestamp(data.latestMessageAt)}
+                </time>
+              ) : (
+                formatTimestamp(data.latestMessageAt)
+              )
+            }
           />
         </div>
       </section>
@@ -183,7 +192,7 @@ function AggregateCard({
 }: {
   icon: React.ReactNode
   label: string
-  value: string
+  value: React.ReactNode
 }) {
   return (
     <Card>
@@ -202,7 +211,15 @@ function RunRow({ run }: { run: IngestionRun }) {
   return (
     <tr className="border-t">
       <td className="px-3 py-2 font-mono text-xs">{run.id}</td>
-      <td className="px-3 py-2">{formatTimestamp(run.runStartedAt)}</td>
+      <td className="px-3 py-2">
+        {isValidIsoDate(run.runStartedAt) ? (
+          <time dateTime={run.runStartedAt}>
+            {formatTimestamp(run.runStartedAt)}
+          </time>
+        ) : (
+          formatTimestamp(run.runStartedAt)
+        )}
+      </td>
       <td className="px-3 py-2">{run.triggeredBy || '—'}</td>
       <td className="px-3 py-2">
         {run.sourceMonths.length > 0 ? run.sourceMonths.join(', ') : '—'}

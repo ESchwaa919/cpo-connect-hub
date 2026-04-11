@@ -1,7 +1,7 @@
 // Integration test for the admin ingestion history page. Stubs global
 // fetch so the real React Query wiring is exercised without a server.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AdminIngestionHistory from '../pages/members/AdminIngestionHistory'
@@ -163,6 +163,73 @@ describe('AdminIngestionHistory', () => {
     expect(
       await screen.findByText(/Couldn't load ingestion history/i),
     ).toBeInTheDocument()
+  })
+
+  it('wraps the Latest message aggregate timestamp in <time dateTime={iso}>', async () => {
+    const latestIso = '2026-04-11T10:30:00.000Z'
+    vi.stubGlobal(
+      'fetch',
+      stubIngestionRuns(() =>
+        jsonResponse({
+          runs: [],
+          totalMessages: 0,
+          latestMessageAt: latestIso,
+        }),
+      ),
+    )
+    renderPage()
+
+    // The Latest message card must render the raw ISO string on a
+    // <time dateTime=…> element so screen readers / copy-paste can
+    // pick up the machine-readable value.
+    await waitFor(() => {
+      const timeEl = document.querySelector<HTMLTimeElement>(
+        `time[datetime="${latestIso}"]`,
+      )
+      expect(timeEl).not.toBeNull()
+      expect(timeEl?.textContent?.length).toBeGreaterThan(0)
+    })
+  })
+
+  it("wraps each run's Started cell in <time dateTime={iso}>", async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubIngestionRuns(() =>
+        jsonResponse(successBody([sampleRun])),
+      ),
+    )
+    renderPage()
+
+    await screen.findByText('Erik Schwaa')
+    const timeEl = document.querySelector<HTMLTimeElement>(
+      `time[datetime="${sampleRun.runStartedAt}"]`,
+    )
+    expect(timeEl).not.toBeNull()
+    expect(timeEl?.textContent?.length).toBeGreaterThan(0)
+  })
+
+  it('does NOT render a <time> wrapper when latestMessageAt is an empty string', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubIngestionRuns(() =>
+        jsonResponse({
+          runs: [],
+          totalMessages: 0,
+          latestMessageAt: '',
+        }),
+      ),
+    )
+    renderPage()
+
+    // Wait for the page to fully render the aggregates (empty runs
+    // branch renders the empty-state card alongside them).
+    await screen.findByText(/No ingestion runs recorded yet/i)
+    // An empty latestMessageAt must fall through to the em-dash without
+    // producing a bogus <time dateTime=""> element.
+    const bogusTime = document.querySelector('time[datetime=""]')
+    expect(bogusTime).toBeNull()
+    // Verify the em-dash fallback renders inside the Latest message card.
+    expect(screen.getByText('—')).toBeInTheDocument()
   })
 
   it('uses the correct endpoint URL (/api/admin/chat/ingestion-runs)', async () => {
