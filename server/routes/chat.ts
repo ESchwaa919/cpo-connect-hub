@@ -503,15 +503,28 @@ export async function ingestHandler(
 // ---------------------------------------------------------------------------
 
 interface IngestionRunDBRow {
+  // pg-node returns BIGSERIAL columns as strings because the full bigint
+  // range doesn't fit in a JS number. The handler coerces with Number()
+  // before responding (the spec's runId field is numeric).
   id: string
-  run_started_at: string
-  run_completed_at: string | null
+  // timestamptz columns come back as JS Date objects via pg's default type
+  // parser — they're serialized to ISO strings below.
+  run_started_at: Date
+  run_completed_at: Date | null
   triggered_by: string
   source_months: string[] | null
   messages_ingested: number
   messages_skipped: number
   status: string
   error_message: string | null
+}
+
+function toIsoOrEmpty(v: Date | null | undefined): string {
+  return v instanceof Date ? v.toISOString() : ''
+}
+
+function toIsoOrNull(v: Date | null | undefined): string | null {
+  return v instanceof Date ? v.toISOString() : null
 }
 
 export async function ingestionRunsHandler(
@@ -529,7 +542,7 @@ export async function ingestionRunsHandler(
     const [runsResult, aggResult] = await Promise.all([
       pool.query<IngestionRunDBRow>(
         `SELECT
-           r.id::text,
+           r.id,
            r.run_started_at,
            r.run_completed_at,
            COALESCE(
@@ -551,17 +564,18 @@ export async function ingestionRunsHandler(
          ORDER BY r.run_started_at DESC
          LIMIT 50`,
       ),
-      pool.query<{ count: string; latest: string | null }>(
-        `SELECT COUNT(*)::text AS count, MAX(sent_at)::text AS latest
+      pool.query<{ count: string; latest: Date | null }>(
+        `SELECT COUNT(*)::text AS count, MAX(sent_at) AS latest
          FROM cpo_connect.chat_messages`,
       ),
     ])
 
     res.status(200).json({
       runs: runsResult.rows.map((r) => ({
-        id: r.id,
-        runStartedAt: r.run_started_at,
-        runCompletedAt: r.run_completed_at,
+        // Spec calls for numeric run ids; pg returns bigint as string.
+        id: Number(r.id),
+        runStartedAt: toIsoOrEmpty(r.run_started_at),
+        runCompletedAt: toIsoOrNull(r.run_completed_at),
         triggeredBy: r.triggered_by,
         sourceMonths: r.source_months ?? [],
         messagesIngested: r.messages_ingested,
@@ -570,7 +584,10 @@ export async function ingestionRunsHandler(
         errorMessage: r.error_message,
       })),
       totalMessages: Number(aggResult.rows[0].count),
-      latestMessageAt: aggResult.rows[0]?.latest ?? '',
+      // ISO 8601 with a `T` separator so Safari's Date parser accepts it.
+      // Postgres' default text form uses a space which Safari rejects —
+      // fixed by letting pg return a Date and formatting here.
+      latestMessageAt: toIsoOrEmpty(aggResult.rows[0]?.latest),
     })
   } catch (err) {
     sendServerError(res, 'GET /api/admin/chat/ingestion-runs', err)

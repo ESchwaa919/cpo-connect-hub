@@ -1025,10 +1025,10 @@ dbDescribe('ingestionRunsHandler', () => {
   const adminDisplayName = `WETA Runs Admin ${randomUUID()}`
   const unknownEmail = `weta-runs-unknown-${randomUUID()}@test.local`
 
-  const insertedRunIds: string[] = []
-  let adminRunId: string | null = null
-  let scriptRunId: string | null = null
-  let unknownRunId: string | null = null
+  const insertedRunIds: number[] = []
+  let adminRunId = 0
+  let scriptRunId = 0
+  let unknownRunId = 0
 
   beforeAll(async () => {
     // Admin row in member_profiles for the JOIN fallback
@@ -1045,10 +1045,10 @@ dbDescribe('ingestionRunsHandler', () => {
          (triggered_by_email, source_months, status,
           messages_ingested, messages_skipped, run_completed_at)
        VALUES ($1, ARRAY[$2], 'success', 42, 3, NOW())
-       RETURNING id::text`,
+       RETURNING id`,
       [adminEmail, testMonth],
     )
-    adminRunId = adminRun.rows[0].id
+    adminRunId = Number(adminRun.rows[0].id)
     insertedRunIds.push(adminRunId)
 
     // Case 2: run triggered by the headless ingestion script → 'Ingestion Script' literal
@@ -1057,10 +1057,10 @@ dbDescribe('ingestionRunsHandler', () => {
          (triggered_by_email, source_months, status,
           messages_ingested, messages_skipped, run_completed_at)
        VALUES ('script:ingest', ARRAY[$1], 'success', 10, 0, NOW())
-       RETURNING id::text`,
+       RETURNING id`,
       [testMonth],
     )
-    scriptRunId = scriptRun.rows[0].id
+    scriptRunId = Number(scriptRun.rows[0].id)
     insertedRunIds.push(scriptRunId)
 
     // Case 3: run triggered by an email that has no member_profile row →
@@ -1070,10 +1070,10 @@ dbDescribe('ingestionRunsHandler', () => {
          (triggered_by_email, source_months, status,
           messages_ingested, messages_skipped, run_completed_at)
        VALUES ($1, ARRAY[$2], 'success', 5, 0, NOW())
-       RETURNING id::text`,
+       RETURNING id`,
       [unknownEmail, testMonth],
     )
-    unknownRunId = unknownRun.rows[0].id
+    unknownRunId = Number(unknownRun.rows[0].id)
     insertedRunIds.push(unknownRunId)
   })
 
@@ -1090,7 +1090,7 @@ dbDescribe('ingestionRunsHandler', () => {
     )
   })
 
-  it('returns runs + corpus totals', async () => {
+  it('returns runs + corpus totals with numeric ids and ISO latestMessageAt', async () => {
     const req = makeReq()
     const res = makeRes()
     await ingestionRunsHandler(req, res)
@@ -1098,7 +1098,9 @@ dbDescribe('ingestionRunsHandler', () => {
     expect(res.status).toHaveBeenCalledWith(200)
     const body = bodyOf(res) as {
       runs: Array<{
-        id: string
+        id: number
+        runStartedAt: string
+        runCompletedAt: string | null
         triggeredBy: string
         messagesIngested: number
         messagesSkipped: number
@@ -1114,6 +1116,33 @@ dbDescribe('ingestionRunsHandler', () => {
     expect(ourRun?.messagesSkipped).toBe(3)
     expect(ourRun?.status).toBe('success')
 
+    // Codex pass 4 IMPORTANT: runs[].id must be numeric, not a bigint
+    // string. Clients compare/sort on this field.
+    expect(body.runs.length).toBeGreaterThan(0)
+    for (const r of body.runs) {
+      expect(typeof r.id).toBe('number')
+      expect(Number.isInteger(r.id)).toBe(true)
+    }
+
+    // Codex pass 4 IMPORTANT: latestMessageAt must be ISO 8601 with a
+    // `T` separator so Safari's Date parser accepts it. Postgres' default
+    // text format uses a space which Safari rejects. The test corpus
+    // has at least one message from the happy-path ingest test run, so
+    // latestMessageAt is non-empty here on the shared DB.
+    expect(body.latestMessageAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    )
+    // And it must be parseable as a valid Date
+    expect(Number.isNaN(new Date(body.latestMessageAt).getTime())).toBe(false)
+
+    // Timestamp fields on individual runs should also be ISO-formatted
+    // (handler normalizes via toIsoOrEmpty / toIsoOrNull).
+    if (ourRun?.runStartedAt) {
+      expect(ourRun.runStartedAt).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+      )
+    }
+
     expect(typeof body.totalMessages).toBe('number')
     expect(body.totalMessages).toBeGreaterThanOrEqual(0)
   })
@@ -1124,7 +1153,7 @@ dbDescribe('ingestionRunsHandler', () => {
     await ingestionRunsHandler(req, res)
 
     const body = bodyOf(res) as {
-      runs: Array<{ id: string; triggeredBy: string }>
+      runs: Array<{ id: number; triggeredBy: string }>
     }
     const run = body.runs.find((r) => r.id === adminRunId)
     expect(run?.triggeredBy).toBe(adminDisplayName)
@@ -1136,7 +1165,7 @@ dbDescribe('ingestionRunsHandler', () => {
     await ingestionRunsHandler(req, res)
 
     const body = bodyOf(res) as {
-      runs: Array<{ id: string; triggeredBy: string }>
+      runs: Array<{ id: number; triggeredBy: string }>
     }
     const run = body.runs.find((r) => r.id === scriptRunId)
     expect(run?.triggeredBy).toBe('Ingestion Script')
@@ -1148,7 +1177,7 @@ dbDescribe('ingestionRunsHandler', () => {
     await ingestionRunsHandler(req, res)
 
     const body = bodyOf(res) as {
-      runs: Array<{ id: string; triggeredBy: string }>
+      runs: Array<{ id: number; triggeredBy: string }>
     }
     const run = body.runs.find((r) => r.id === unknownRunId)
     expect(run?.triggeredBy).toBe(unknownEmail)
