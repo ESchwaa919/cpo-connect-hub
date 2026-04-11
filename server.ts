@@ -1,46 +1,9 @@
-import express from 'express'
-import cookieParser from 'cookie-parser'
-import path from 'path'
-import { fileURLToPath } from 'url'
 import { runMigrations } from './server/db.ts'
-import authRouter from './server/routes/auth.ts'
-import membersRouter from './server/routes/members.ts'
+import { createApp } from './server/app.ts'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
-const app = express()
+const app = createApp()
 const PORT = process.env.PORT || 3001
 
-// Middleware
-app.use(cookieParser())
-app.use(express.json())
-
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' })
-})
-
-// API routes
-app.use('/api/auth', authRouter)
-app.use('/api/members', membersRouter)
-
-// Service worker must not be cached by the browser
-app.get('/sw.js', (_req, res, next) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-  res.setHeader('Service-Worker-Allowed', '/')
-  next()
-})
-
-// Serve static files from Vite build
-app.use(express.static(path.join(__dirname, 'dist')))
-
-// SPA catch-all (Express 5 requires named wildcard parameter)
-app.get('/{*splat}', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'))
-})
-
-// Start server
 async function start() {
   try {
     await runMigrations()

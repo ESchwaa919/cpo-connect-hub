@@ -3,7 +3,7 @@
 import './_requireIngestAuth-setup'
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
-import type { Request, Response, NextFunction } from 'express'
+import type { Request, NextFunction } from 'express'
 import { randomUUID } from 'node:crypto'
 import { sign as signCookie } from 'cookie-signature'
 import pool from '../../server/db'
@@ -11,22 +11,7 @@ import {
   requireIngestAuth,
   SCRIPT_USER,
 } from '../../server/middleware/requireIngestAuth'
-
-function makeRes() {
-  let headersSent = false
-  const res = {
-    get headersSent() {
-      return headersSent
-    },
-    status: vi.fn(function (this: unknown, _code: number) {
-      headersSent = true
-      return res
-    }),
-    json: vi.fn().mockReturnThis(),
-    setHeader: vi.fn(),
-  } as unknown as Response
-  return res
-}
+import { makeRes } from './_express-mocks'
 
 const INGEST_KEY =
   '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
