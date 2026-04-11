@@ -12,6 +12,14 @@ import type { MemberRecord } from '../services/sheets.ts'
 
 const router = Router()
 
+// Session lifetime for BOTH the DB row (`cpo_connect.sessions.expires_at`)
+// and the signed-cookie `Max-Age`. 30 days keeps members signed in across
+// browser restarts and new windows — per THE-551, 7 days was too short
+// and users were being kicked back to the magic-link flow too often.
+// Exported so tests can assert the two stay in sync.
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const SESSION_TTL_SQL_INTERVAL = '30 days'
+
 // Rate limiters
 const ipLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10 }) // 10 per minute
 const emailLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 3 }) // 3 per hour
@@ -144,10 +152,10 @@ router.get('/verify', async (req, res) => {
     const member = await lookupMember(tokenRow.email)
     const memberName = member?.name ?? ''
 
-    // Create session (7-day expiry)
+    // Create session (TTL from SESSION_TTL_SQL_INTERVAL, matches cookie Max-Age)
     const sessionResult = await pool.query(
-      'INSERT INTO cpo_connect.sessions (email, name, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'7 days\') RETURNING id',
-      [tokenRow.email, memberName]
+      'INSERT INTO cpo_connect.sessions (email, name, expires_at) VALUES ($1, $2, NOW() + $3::interval) RETURNING id',
+      [tokenRow.email, memberName, SESSION_TTL_SQL_INTERVAL]
     )
     const sessionId = (sessionResult.rows[0] as { id: string }).id
     console.log('[verify] Session created — id:', sessionId, 'name:', memberName)
@@ -202,7 +210,7 @@ router.get('/verify', async (req, res) => {
       httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+      maxAge: SESSION_TTL_MS,
       path: '/',
     })
 
@@ -211,7 +219,7 @@ router.get('/verify', async (req, res) => {
       httpOnly: false,
       secure: isProduction,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: SESSION_TTL_MS,
       path: '/',
     })
 
@@ -254,7 +262,7 @@ router.get('/me', requireAuth, async (req, res) => {
       httpOnly: false,
       secure: isProduction,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: SESSION_TTL_MS,
       path: '/',
     })
 
