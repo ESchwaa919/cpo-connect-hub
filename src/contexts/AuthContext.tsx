@@ -4,6 +4,10 @@ interface User {
   name: string
   email: string
   jobRole: string
+  /** Whether the current user is in ADMIN_EMAILS. Defaults to `false`
+   *  when /api/auth/me omits the field so pre-Batch-7 responses keep
+   *  working. Admin-only UI must treat absence as non-admin. */
+  isAdmin: boolean
 }
 
 interface LoginResult {
@@ -34,9 +38,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/auth/me", { credentials: "include" })
       if (res.ok) {
-        const data = await res.json()
-        // /api/auth/me returns { name, email, jobRole } directly (not nested under .user)
-        setUser(data)
+        const data = (await res.json()) as {
+          name: string
+          email: string
+          jobRole: string
+          isAdmin?: boolean
+        }
+        // /api/auth/me returns { name, email, jobRole, isAdmin } directly
+        // (not nested under .user). Absent `isAdmin` → false so
+        // admin-only UI fails closed.
+        setUser({
+          name: data.name,
+          email: data.email,
+          jobRole: data.jobRole,
+          isAdmin: data.isAdmin === true,
+        })
       } else {
         setUser(null)
         // Clear stale hint cookie on auth failure

@@ -32,6 +32,10 @@ const memberLinks = [
   { label: "Profile", to: "/members/profile" },
 ]
 
+const adminLinks = [
+  { label: "Admin · Ingestion", to: "/members/admin/ingestion-history" },
+]
+
 export function Navbar() {
   const { user, isAuthenticated, hasChecked, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -44,6 +48,9 @@ export function Navbar() {
 
   const isLandingPage = location.pathname === "/"
   const isMembersPage = location.pathname.startsWith("/members")
+  const visibleMemberLinks = user?.isAdmin
+    ? [...memberLinks, ...adminLinks]
+    : memberLinks
 
   // Auto-open login modal from location state (redirect from ProtectedRoute)
   useEffect(() => {
@@ -106,7 +113,7 @@ export function Navbar() {
               ))}
             {isAuthenticated &&
               isMembersPage &&
-              memberLinks.map((link) => (
+              visibleMemberLinks.map((link) => (
                 <Link
                   key={link.label}
                   to={link.to}
@@ -227,7 +234,7 @@ export function Navbar() {
                 ))}
               {isAuthenticated &&
                 isMembersPage &&
-                memberLinks.map((link) => (
+                visibleMemberLinks.map((link) => (
                   <Link
                     key={link.label}
                     to={link.to}
