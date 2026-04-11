@@ -14,6 +14,7 @@ import {
   EMBEDDING_MODEL,
   getGeminiClient,
 } from '../../server/services/geminiClient.ts'
+import { sleep } from './sleep.ts'
 
 const INGEST_INSTRUCTION =
   'Represent this community chat message for semantic search.'
@@ -27,10 +28,6 @@ export interface EmbedItem {
 
 export interface EmbeddedItem extends EmbedItem {
   embedding: number[]
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function embedOne(text: string): Promise<number[]> {

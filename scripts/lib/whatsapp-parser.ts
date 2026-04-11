@@ -23,7 +23,10 @@ const ENCRYPTION_NOTICE_RE = /^Messages and calls are end-to-end encrypted/i
 
 function isSystemText(text: string): boolean {
   const t = text.trim()
-  if (!t) return false
+  // An empty/whitespace-only body means the line was `Alice:` with no
+  // message content — treat as a placeholder and drop it so it doesn't
+  // pollute chat_messages or burn an embedding call.
+  if (t.length === 0) return true
   if (MEDIA_OMITTED_RE.test(t)) return true
   if (DELETED_RE.test(t)) return true
   if (ENCRYPTION_NOTICE_RE.test(t)) return true

@@ -65,6 +65,17 @@ describe('parseWhatsappChat', () => {
     expect(parsed[0].text).toBe('real message')
   })
 
+  it('skips header-only lines with no body text (e.g. "Alice:")', () => {
+    const raw = [
+      '[05/03/2026, 14:23:11] Alice:',
+      '[05/03/2026, 14:23:12] Bob: Hello',
+    ].join('\n')
+    const parsed = parseWhatsappChat(raw)
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].author).toBe('Bob')
+    expect(parsed[0].text).toBe('Hello')
+  })
+
   it('skips deleted-message placeholders', () => {
     const raw = [
       '[05/03/2026, 14:00:00] Alice: This message was deleted.',
@@ -126,6 +137,41 @@ describe('parseWhatsappChat', () => {
     const raw = '[05/07/2026, 15:30:00] Alice: test'
     const parsed = parseWhatsappChat(raw)
     expect(parsed[0].sentAt).toBe('2026-07-05T15:30:00.000Z')
+  })
+
+  // DST transition edges — last Sunday of March / October 2026 in
+  // Europe/London. These assertions lock in the deterministic resolution
+  // Intl.DateTimeFormat produces on ambiguous / non-existent wall-clock
+  // times so future refactors can't silently change the behavior.
+
+  it('handles the GMT→BST spring-forward transition (2026-03-29)', () => {
+    // Clocks jump 01:00 GMT → 02:00 BST, so "01:30" local does not exist.
+    // The parser resolves it deterministically to 00:30 UTC (i.e. treats
+    // it as BST with a -1h offset — the "forward" side of the jump).
+    const raw = [
+      '[29/03/2026, 01:30:00] Alice: non-existent wallclock',
+      '[29/03/2026, 02:30:00] Bob: first real BST moment',
+    ].join('\n')
+    const parsed = parseWhatsappChat(raw, { timeZone: 'Europe/London' })
+    expect(parsed).toHaveLength(2)
+    expect(parsed[0].sentAt).toBe('2026-03-29T00:30:00.000Z')
+    expect(parsed[1].sentAt).toBe('2026-03-29T01:30:00.000Z')
+  })
+
+  it('handles the BST→GMT fall-back transition (2026-10-25)', () => {
+    // Clocks jump 02:00 BST → 01:00 GMT, so "01:30" local happens twice:
+    // once as BST (00:30 UTC) and once as GMT (01:30 UTC). The parser
+    // picks the GMT occurrence deterministically (the "second" one).
+    const raw = [
+      '[25/10/2026, 00:30:00] Alice: last BST hour',
+      '[25/10/2026, 01:30:00] Bob: ambiguous — parser picks GMT',
+      '[25/10/2026, 02:30:00] Carol: firmly GMT',
+    ].join('\n')
+    const parsed = parseWhatsappChat(raw, { timeZone: 'Europe/London' })
+    expect(parsed).toHaveLength(3)
+    expect(parsed[0].sentAt).toBe('2026-10-24T23:30:00.000Z')
+    expect(parsed[1].sentAt).toBe('2026-10-25T01:30:00.000Z')
+    expect(parsed[2].sentAt).toBe('2026-10-25T02:30:00.000Z')
   })
 })
 
