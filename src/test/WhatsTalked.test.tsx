@@ -413,6 +413,167 @@ describe('WhatsTalked error handling', () => {
     ).toBeInTheDocument()
   })
 
+  it('blocks prompt-tile clicks during the rate-limit cooldown, re-enables after countdown', async () => {
+    const fetchMock = stubFetch({
+      profile: {},
+      promptTiles: {
+        current: [{ id: 't1', title: 'Suggested', query: 'What are people saying?' }],
+        evergreen: [],
+      },
+      askResponses: [
+        {
+          status: 429,
+          body: { error: 'rate_limited', retryAfterSec: 1 },
+          headers: { 'Retry-After': '1' },
+        },
+        { answer: 'fresh after cooldown', sources: [], queryMs: 1, model: 'x' },
+      ],
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+    await screen.findByTestId('privacy-notice-default')
+
+    await submitQuery('first attempt')
+    await screen.findByText(/Rate limit reached/i)
+
+    const askCallCount = (): number =>
+      fetchMock.mock.calls.filter((c) => {
+        const url = typeof c[0] === 'string' ? c[0] : String(c[0])
+        return url.startsWith('/api/chat/ask')
+      }).length
+
+    expect(askCallCount()).toBe(1)
+
+    // The suggested prompt tile is now disabled, and clicking it must
+    // not fire another request even if a future caller bypassed the
+    // visual disable (defense-in-depth via the runAsk bail).
+    const tileButton = screen.getByRole('button', { name: /Suggested/i })
+    expect(tileButton).toBeDisabled()
+    fireEvent.click(tileButton)
+    expect(askCallCount()).toBe(1)
+
+    // Wait for the 1-second countdown to drain and the tile to re-enable.
+    await waitFor(
+      () => {
+        expect(
+          screen.getByRole('button', { name: /Suggested/i }),
+        ).not.toBeDisabled()
+      },
+      { timeout: 3000 },
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Suggested/i }))
+
+    await waitFor(() => {
+      expect(askCallCount()).toBe(2)
+    })
+  })
+
+  it('moves focus to the zero-match heading on 200 with answer: null', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        profile: {},
+        askResponses: [
+          {
+            answer: null,
+            sources: [],
+            queryMs: 5,
+            model: null,
+            message: 'No relevant chat history found for this question',
+          },
+        ],
+      }),
+    )
+    renderPage()
+    await screen.findByTestId('privacy-notice-default')
+
+    await submitQuery('anything')
+
+    const heading = await screen.findByRole('heading', {
+      level: 3,
+      name: /No relevant history found/i,
+    })
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading)
+    })
+  })
+
+  it('moves focus to the error heading on 500 internal', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        profile: {},
+        askResponses: [{ status: 500, body: { error: 'internal' } }],
+      }),
+    )
+    renderPage()
+    await screen.findByTestId('privacy-notice-default')
+
+    await submitQuery('anything')
+
+    const heading = await screen.findByRole('heading', {
+      level: 3,
+      name: /Something went wrong/i,
+    })
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading)
+    })
+  })
+
+  it('moves focus to the error heading on 429 rate_limited', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        profile: {},
+        askResponses: [
+          {
+            status: 429,
+            body: { error: 'rate_limited', retryAfterSec: 3 },
+          },
+        ],
+      }),
+    )
+    renderPage()
+    await screen.findByTestId('privacy-notice-default')
+
+    await submitQuery('anything')
+
+    const heading = await screen.findByRole('heading', {
+      level: 3,
+      name: /Rate limit reached/i,
+    })
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading)
+    })
+  })
+
+  it('moves focus to the error heading on 503 embedding_unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        profile: {},
+        askResponses: [
+          {
+            status: 503,
+            body: { error: 'embedding_unavailable', retryAfterSec: 30 },
+          },
+        ],
+      }),
+    )
+    renderPage()
+    await screen.findByTestId('privacy-notice-default')
+
+    await submitQuery('anything')
+
+    const heading = await screen.findByRole('heading', {
+      level: 3,
+      name: /Search temporarily unavailable/i,
+    })
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading)
+    })
+  })
+
   it('moves focus to the answer heading on every submission (including same-query resubmit)', async () => {
     vi.stubGlobal(
       'fetch',

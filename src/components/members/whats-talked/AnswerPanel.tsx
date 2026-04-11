@@ -41,18 +41,32 @@ export function AnswerPanel({
   focusKey,
   countdownRemaining,
 }: AnswerPanelProps) {
-  const answerHeadingRef = useRef<HTMLHeadingElement>(null)
+  const successHeadingRef = useRef<HTMLHeadingElement>(null)
+  const zeroMatchHeadingRef = useRef<HTMLHeadingElement>(null)
+  const errorHeadingRef = useRef<HTMLHeadingElement>(null)
   const lastFocusedKeyRef = useRef<string | null>(null)
 
+  // Move focus to whichever terminal-state heading is now rendered so
+  // keyboard + screen-reader users land on the new result. Covers
+  // success-with-answer, zero-match (answer === null), and error —
+  // idle/loading are skipped. Keyed on focusKey so back-to-back
+  // same-query submits still re-trigger focus (parent bumps a
+  // submission counter into the key).
   useEffect(() => {
-    if (
-      state.kind === 'success' &&
-      state.response.answer !== null &&
-      lastFocusedKeyRef.current !== focusKey
-    ) {
-      lastFocusedKeyRef.current = focusKey
-      answerHeadingRef.current?.focus()
+    if (state.kind === 'idle' || state.kind === 'loading') return
+    if (lastFocusedKeyRef.current === focusKey) return
+    lastFocusedKeyRef.current = focusKey
+
+    let target: HTMLHeadingElement | null = null
+    if (state.kind === 'success') {
+      target =
+        state.response.answer !== null
+          ? successHeadingRef.current
+          : zeroMatchHeadingRef.current
+    } else if (state.kind === 'error') {
+      target = errorHeadingRef.current
     }
+    target?.focus()
   }, [state, focusKey])
 
   const isLoading = state.kind === 'loading'
@@ -65,15 +79,19 @@ export function AnswerPanel({
           error={state.error}
           onRetry={onRetry}
           countdownRemaining={countdownRemaining}
+          headingRef={errorHeadingRef}
         />
       ) : null}
       {state.kind === 'success' ? (
         state.response.answer === null ? (
-          <ZeroMatchCard message={state.response.message} />
+          <ZeroMatchCard
+            message={state.response.message}
+            headingRef={zeroMatchHeadingRef}
+          />
         ) : (
           <SuccessBody
             response={state.response}
-            answerHeadingRef={answerHeadingRef}
+            headingRef={successHeadingRef}
           />
         )
       ) : null}
@@ -99,17 +117,17 @@ function LoadingCard() {
 
 function SuccessBody({
   response,
-  answerHeadingRef,
+  headingRef,
 }: {
   response: AskSuccessResponse
-  answerHeadingRef: React.RefObject<HTMLHeadingElement | null>
+  headingRef: React.RefObject<HTMLHeadingElement | null>
 }) {
   return (
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-3 p-6">
           <h3
-            ref={answerHeadingRef}
+            ref={headingRef}
             tabIndex={-1}
             className="text-sm font-semibold text-muted-foreground focus:outline-none"
           >
@@ -147,12 +165,24 @@ function SuccessBody({
   )
 }
 
-function ZeroMatchCard({ message }: { message?: string }) {
+function ZeroMatchCard({
+  message,
+  headingRef,
+}: {
+  message?: string
+  headingRef: React.RefObject<HTMLHeadingElement | null>
+}) {
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-2 p-8 text-center">
         <MessageCircleQuestion className="h-8 w-8 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">No relevant history found</h3>
+        <h3
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-sm font-semibold focus:outline-none"
+        >
+          No relevant history found
+        </h3>
         <p className="max-w-md text-xs text-muted-foreground">
           {message ??
             'No messages in the indexed chat history matched this question. Try rephrasing or switching to a different channel.'}
@@ -166,10 +196,12 @@ function ErrorCard({
   error,
   onRetry,
   countdownRemaining,
+  headingRef,
 }: {
   error: ChatAskError
   onRetry: () => void
   countdownRemaining: number | null
+  headingRef: React.RefObject<HTMLHeadingElement | null>
 }) {
   const details = explainError(error)
   const hasCountdown = details.retryAfterSec !== undefined
@@ -184,7 +216,11 @@ function ErrorCard({
             aria-hidden="true"
           />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-foreground">
+            <h3
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-sm font-semibold text-foreground focus:outline-none"
+            >
               {details.title}
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">

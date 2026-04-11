@@ -187,7 +187,15 @@ export default function WhatsTalked() {
     setSearchParams(next, { replace: options.replace })
   }
 
+  const isRateLimited = rateLimitWaitSec !== null && rateLimitWaitSec > 0
+
   function runAsk(nextQuery: string): void {
+    // Honor an active rate-limit cooldown regardless of entry point
+    // (AskForm submit, prompt tile click, retry button). Silent bail-out
+    // — AskForm and the ErrorCard already show the visible countdown so
+    // the user isn't confused about why nothing happened.
+    if (isRateLimited) return
+
     setDraftQuery(nextQuery)
     // activeQuery is captured from the closed-over searchParams snapshot,
     // so this comparison is stable within the handler call.
@@ -285,7 +293,7 @@ export default function WhatsTalked() {
               <PromptTile
                 key={tile.id}
                 tile={tile}
-                disabled={askQuery.isFetching}
+                disabled={askQuery.isFetching || isRateLimited}
                 onSelect={handleTileSelect}
               />
             ))}
@@ -298,11 +306,9 @@ export default function WhatsTalked() {
         onChange={setDraftQuery}
         onSubmit={runAsk}
         loading={isLoading}
-        disabled={rateLimitWaitSec !== null && rateLimitWaitSec > 0}
+        disabled={isRateLimited}
         disabledReason={
-          rateLimitWaitSec !== null && rateLimitWaitSec > 0
-            ? `Retry in ${rateLimitWaitSec}s`
-            : undefined
+          isRateLimited ? `Retry in ${rateLimitWaitSec}s` : undefined
         }
       />
 
