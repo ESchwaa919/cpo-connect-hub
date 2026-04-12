@@ -25,24 +25,14 @@ const publicLinks = [
   { label: "Founders", href: "#founders" },
 ]
 
-interface MemberLinkDef {
-  label: string
-  to: string
-  /** True when the target is a server-rendered URL outside the React
-   *  SPA (e.g. the auth-gated `/reference/` static mount). Rendered
-   *  with a plain `<a>` so the router doesn't intercept the click. */
-  external?: boolean
-}
-
-const memberLinks: MemberLinkDef[] = [
+const memberLinks = [
   { label: "Chat Insights", to: "/members/chat-insights" },
   { label: "What's Talked", to: "/members/whats-talked" },
-  { label: "Monthly Highlights", to: "/reference/", external: true },
   { label: "Directory", to: "/members/directory" },
   { label: "Profile", to: "/members/profile" },
 ]
 
-const adminLinks: MemberLinkDef[] = [
+const adminLinks = [
   { label: "Admin · Ingestion", to: "/members/admin/ingestion-history" },
 ]
 
@@ -123,26 +113,20 @@ export function Navbar() {
               ))}
             {isAuthenticated &&
               isMembersPage &&
-              visibleMemberLinks.map((link) => {
-                const classes = cn(
-                  "text-sm font-medium transition-colors hover:text-foreground",
-                  location.pathname === link.to
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )
-                if (link.external) {
-                  return (
-                    <a key={link.label} href={link.to} className={classes}>
-                      {link.label}
-                    </a>
-                  )
-                }
-                return (
-                  <Link key={link.label} to={link.to} className={classes}>
-                    {link.label}
-                  </Link>
-                )
-              })}
+              visibleMemberLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  className={cn(
+                    "text-sm font-medium transition-colors hover:text-foreground",
+                    location.pathname === link.to
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              ))}
             {canInstall && isAuthenticated && isMembersPage && (
               <Button
                 variant="ghost"
@@ -250,36 +234,21 @@ export function Navbar() {
                 ))}
               {isAuthenticated &&
                 isMembersPage &&
-                visibleMemberLinks.map((link) => {
-                  const classes = cn(
-                    "text-sm font-medium transition-colors hover:text-foreground",
-                    location.pathname === link.to
-                      ? "text-foreground"
-                      : "text-muted-foreground"
-                  )
-                  if (link.external) {
-                    return (
-                      <a
-                        key={link.label}
-                        href={link.to}
-                        className={classes}
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        {link.label}
-                      </a>
-                    )
-                  }
-                  return (
-                    <Link
-                      key={link.label}
-                      to={link.to}
-                      className={classes}
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      {link.label}
-                    </Link>
-                  )
-                })}
+                visibleMemberLinks.map((link) => (
+                  <Link
+                    key={link.label}
+                    to={link.to}
+                    className={cn(
+                      "text-sm font-medium transition-colors hover:text-foreground",
+                      location.pathname === link.to
+                        ? "text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
               <div className="flex flex-col space-y-2 pt-3 border-t">
                 {canInstall && isAuthenticated && isMembersPage && (
                   <Button
