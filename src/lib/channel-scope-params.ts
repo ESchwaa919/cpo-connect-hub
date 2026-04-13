@@ -5,7 +5,7 @@ export type ChannelScopeValue =
   | { mode: 'all'; ids: ChannelId[] }
   | { mode: 'subset'; ids: ChannelId[] }
 
-const CHANNEL_LABELS: Record<ChannelId, string> = {
+export const CHANNEL_LABELS: Record<ChannelId, string> = {
   general: 'General',
   ai: 'AI',
   leadership: 'Leadership',

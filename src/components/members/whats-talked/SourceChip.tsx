@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CHANNEL_LABELS } from '@/lib/channel-scope-params'
 import type { AskSource } from './types'
 
-const CHANNEL_LABEL: Record<string, string> = {
-  general: 'General',
-  ai: 'AI',
+// Legacy DB channel ids whose display name differs from the shared
+// CHANNEL_LABELS map — keep a small override layer instead of a third
+// independent copy.
+const CHANNEL_LABEL_OVERRIDE: Record<string, string> = {
   leadership: 'L&C',
   leadership_culture: 'L&C',
+}
+
+function channelLabelFor(id: string): string {
+  if (id in CHANNEL_LABEL_OVERRIDE) return CHANNEL_LABEL_OVERRIDE[id]
+  if (id in CHANNEL_LABELS) return CHANNEL_LABELS[id as keyof typeof CHANNEL_LABELS]
+  return id
 }
 
 function formatShortDate(iso: string): string {
@@ -46,7 +54,7 @@ export function SourceChip({ source }: { source: AskSource }) {
   }, [open])
 
   const displayName = source.authorOptedOut ? 'A member' : source.authorDisplayName
-  const channelLabel = CHANNEL_LABEL[source.channel] ?? source.channel
+  const channelLabel = channelLabelFor(source.channel)
   const shortDate = formatShortDate(source.sentAt)
   const excerpt =
     source.messageText.length > MAX_POPOVER_CHARS

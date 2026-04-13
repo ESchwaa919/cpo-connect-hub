@@ -53,12 +53,22 @@ describe('syncMembersFromSheet', () => {
 
     const result = await syncMembersFromSheet()
 
+    // Bulk upsert: one SQL round-trip regardless of row count.
     const upsertCalls = mockQuery.mock.calls.filter(
       (c) =>
         typeof c[0] === 'string' &&
         c[0].includes('INSERT INTO cpo_connect.members'),
     )
-    expect(upsertCalls).toHaveLength(2)
+    expect(upsertCalls).toHaveLength(1)
+    // Params are phones[], names[], emails[]
+    const [phones, names, emails] = upsertCalls[0][1] as [
+      string[],
+      string[],
+      Array<string | null>,
+    ]
+    expect(phones).toHaveLength(2)
+    expect(names).toHaveLength(2)
+    expect(emails).toHaveLength(2)
     expect(result.upserted).toBe(2)
     expect(result.skippedNotJoined).toBe(1)
     expect(result.phoneFailed).toBe(0)

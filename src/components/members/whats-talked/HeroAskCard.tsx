@@ -13,7 +13,6 @@ interface HeroAskCardProps {
   disabledReason?: string
 }
 
-// hero card — visual prominence is intentional, do not flatten
 export function HeroAskCard({
   scope,
   onScopeChange,

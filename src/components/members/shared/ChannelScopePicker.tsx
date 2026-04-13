@@ -3,16 +3,11 @@ import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   ALL_CHANNELS,
+  CHANNEL_LABELS,
   labelForChannelScope,
   type ChannelId,
   type ChannelScopeValue,
 } from '@/lib/channel-scope-params'
-
-const CHANNEL_LABELS: Record<ChannelId, string> = {
-  general: 'General',
-  ai: 'AI',
-  leadership: 'Leadership',
-}
 
 interface ChannelScopePickerProps {
   value: ChannelScopeValue

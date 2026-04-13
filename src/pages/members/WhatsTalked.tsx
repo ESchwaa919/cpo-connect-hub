@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { HeroAskCard } from '@/components/members/whats-talked/HeroAskCard'
@@ -25,12 +25,6 @@ import { useMemberProfile } from '@/hooks/useMemberProfile'
 
 const ASK_STALE_MS = 5 * 60 * 1000
 const TILES_STALE_MS = 60 * 60 * 1000
-
-function scopeQueryString(scope: ChannelScopeValue): string {
-  if (scope.mode === 'all') return ''
-  if (scope.ids.length === 1) return `?channel=${encodeURIComponent(scope.ids[0])}`
-  return `?channels=${encodeURIComponent(scope.ids.join(','))}`
-}
 
 async function fetchPromptTiles(
   scope: ChannelScopeValue,
@@ -106,8 +100,18 @@ async function postAsk(
 export default function WhatsTalked() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const scope: ChannelScopeValue = parseChannelScopeParam(searchParams)
-  const scopeKey = scopeQueryString(scope)
+  // `searchParams` is referentially stable only when the URL changes, so
+  // memoizing both `scope` and `scopeKey` keeps React Query's queryKey
+  // stable across unrelated re-renders (countdown ticks, submission
+  // bumps) and prevents refetches.
+  const scope: ChannelScopeValue = useMemo(
+    () => parseChannelScopeParam(searchParams),
+    [searchParams],
+  )
+  const scopeKey = useMemo(
+    () => serializeChannelScopeParam(scope).channels ?? '',
+    [scope],
+  )
   const activeQuery = searchParams.get('q') ?? ''
 
   const [draftQuery, setDraftQuery] = useState(activeQuery)

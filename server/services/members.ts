@@ -41,6 +41,7 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
   cacheByEmail.clear()
   cacheByName.clear()
 
+  const valid: MemberRow[] = []
   for (const row of rows) {
     const status = (row['Status'] ?? '').trim().toLowerCase()
     if (status !== 'joined') {
@@ -65,21 +66,31 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
     }
 
     const email = (row['Email'] ?? '').trim() || null
+    valid.push({ phone, displayName: name, email })
+  }
 
+  // Single bulk upsert via unnest() — one round-trip instead of N.
+  if (valid.length > 0) {
+    const phones = valid.map((m) => m.phone)
+    const names = valid.map((m) => m.displayName)
+    const emails = valid.map((m) => m.email)
     await pool.query(
       `INSERT INTO cpo_connect.members (phone, display_name, email, updated_at)
-       VALUES ($1, $2, $3, NOW())
+       SELECT phone, display_name, email, NOW()
+       FROM unnest($1::text[], $2::text[], $3::text[])
+         AS t(phone, display_name, email)
        ON CONFLICT (phone) DO UPDATE
          SET display_name = EXCLUDED.display_name,
              email = EXCLUDED.email,
              updated_at = NOW()`,
-      [phone, name, email],
+      [phones, names, emails],
     )
+  }
 
-    const member: MemberRow = { phone, displayName: name, email }
-    cacheByPhone.set(phone, member)
-    if (email) cacheByEmail.set(email.toLowerCase(), member)
-    cacheByName.set(name.toLowerCase(), member)
+  for (const member of valid) {
+    cacheByPhone.set(member.phone, member)
+    if (member.email) cacheByEmail.set(member.email.toLowerCase(), member)
+    cacheByName.set(member.displayName.toLowerCase(), member)
     result.upserted += 1
   }
 
