@@ -4,16 +4,14 @@ import { cn } from '@/lib/utils'
 import { CHANNEL_LABELS } from '@/lib/channel-scope-params'
 import type { AskSource } from './types'
 
-// Legacy DB channel ids whose display name differs from the shared
-// CHANNEL_LABELS map — keep a small override layer instead of a third
-// independent copy.
-const CHANNEL_LABEL_OVERRIDE: Record<string, string> = {
-  leadership: 'L&C',
+// Chip slot is narrow — show a short form for "Leadership & Culture"
+// rather than the full label used by the picker.
+const CHANNEL_SHORT_LABEL: Record<string, string> = {
   leadership_culture: 'L&C',
 }
 
 function channelLabelFor(id: string): string {
-  if (id in CHANNEL_LABEL_OVERRIDE) return CHANNEL_LABEL_OVERRIDE[id]
+  if (id in CHANNEL_SHORT_LABEL) return CHANNEL_SHORT_LABEL[id]
   if (id in CHANNEL_LABELS) return CHANNEL_LABELS[id as keyof typeof CHANNEL_LABELS]
   return id
 }
@@ -84,25 +82,45 @@ export function SourceChip({ source }: { source: AskSource }) {
         <time dateTime={source.sentAt}>{shortDate}</time>
       </button>
       {open && (
-        <div
-          role="dialog"
-          aria-label={`Source ${source.id} details`}
-          className="absolute left-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md"
-        >
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mb-2">
-            <span className="font-medium text-foreground">{displayName}</span>
-            <span aria-hidden="true">·</span>
-            <span>{channelLabel}</span>
-            <span aria-hidden="true">·</span>
-            <time dateTime={source.sentAt}>{shortDate}</time>
-          </div>
-          <p
-            data-testid="source-chip-popover-body"
-            className="whitespace-pre-wrap leading-relaxed"
+        <>
+          {/* Mobile: full-width bottom sheet. Desktop (md+): absolute popover
+              anchored to the chip. Spec AC#8: touch viewports show a bottom
+              sheet instead of a floating popover. */}
+          <div
+            role="presentation"
+            aria-hidden="true"
+            className="fixed inset-0 z-40 bg-black/20 md:hidden"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-label={`Source ${source.id} details`}
+            className={cn(
+              'z-50 border bg-popover text-sm text-popover-foreground shadow-md',
+              // Mobile bottom sheet
+              'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:w-full',
+              'max-md:rounded-t-lg max-md:rounded-b-none max-md:p-4',
+              'max-md:max-h-[70vh] max-md:overflow-y-auto',
+              // Desktop popover
+              'md:absolute md:left-0 md:mt-2 md:w-80 md:max-w-[calc(100vw-2rem)]',
+              'md:rounded-md md:p-3',
+            )}
           >
-            {excerpt}
-          </p>
-        </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mb-2">
+              <span className="font-medium text-foreground">{displayName}</span>
+              <span aria-hidden="true">·</span>
+              <span>{channelLabel}</span>
+              <span aria-hidden="true">·</span>
+              <time dateTime={source.sentAt}>{shortDate}</time>
+            </div>
+            <p
+              data-testid="source-chip-popover-body"
+              className="whitespace-pre-wrap leading-relaxed"
+            >
+              {excerpt}
+            </p>
+          </div>
+        </>
       )}
     </div>
   )

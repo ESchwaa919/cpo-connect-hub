@@ -72,8 +72,8 @@ describe('SourceChip', () => {
     expect((popoverBody.textContent ?? '').length).toBeLessThan(longText.length)
   })
 
-  it('maps known channel ids to human labels (leadership → L&C)', () => {
-    render(<SourceChip source={source({ channel: 'leadership' })} />)
+  it('shortens leadership_culture to L&C in the chip slot', () => {
+    render(<SourceChip source={source({ channel: 'leadership_culture' })} />)
     expect(screen.getByRole('button')).toHaveTextContent(/L&C/)
   })
 })

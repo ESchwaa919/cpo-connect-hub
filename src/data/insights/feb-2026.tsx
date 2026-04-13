@@ -427,7 +427,7 @@ export default function February2026() {
         </div>
       )}
 
-      {activeId === 'leadership' && (
+      {activeId === 'leadership_culture' && (
         <div className="mt-6">
           <ChannelStats stats={leadershipStats} />
           <ChannelSection data={leadershipChannel} />

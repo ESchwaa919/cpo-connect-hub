@@ -42,7 +42,7 @@ describe('parseChannelScopeParam', () => {
 
   it('collapses a subset equal to every channel back to the all sentinel', () => {
     const v = parseChannelScopeParam(
-      new URLSearchParams('channels=general,ai,leadership'),
+      new URLSearchParams('channels=general,ai,leadership_culture'),
     )
     expect(v.mode).toBe('all')
   })
@@ -89,7 +89,7 @@ describe('labelForChannelScope', () => {
   })
   it('returns "{A} + {B}" for a two-channel subset', () => {
     expect(
-      labelForChannelScope({ mode: 'subset', ids: ['ai', 'leadership'] }),
-    ).toBe('AI + Leadership')
+      labelForChannelScope({ mode: 'subset', ids: ['ai', 'leadership_culture'] }),
+    ).toBe('AI + Leadership & Culture')
   })
 })
