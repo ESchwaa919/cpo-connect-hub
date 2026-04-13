@@ -122,6 +122,7 @@ function makeDeps(overrides: Partial<RunDeps> = {}): {
   readZipMock: ReturnType<typeof vi.fn>
   embedMock: ReturnType<typeof vi.fn>
   postMock: ReturnType<typeof vi.fn>
+  resolveAuthorMock: ReturnType<typeof vi.fn>
 } {
   const readZipMock = vi.fn()
   const embedMock = vi.fn().mockImplementation(async (items) =>
@@ -131,16 +132,26 @@ function makeDeps(overrides: Partial<RunDeps> = {}): {
     })),
   )
   const postMock = vi.fn().mockResolvedValue(undefined)
+  // Default to "no match" so existing tests see null/null and don't
+  // need to think about the identity layer.
+  const resolveAuthorMock = vi
+    .fn()
+    .mockImplementation((rawAuthor: string) => ({
+      senderPhone: null,
+      senderDisplayName: rawAuthor,
+    }))
   return {
     deps: {
       readZip: readZipMock,
       embed: embedMock,
       post: postMock,
+      resolveAuthor: resolveAuthorMock,
       ...overrides,
     },
     readZipMock,
     embedMock,
     postMock,
+    resolveAuthorMock,
   }
 }
 
@@ -249,6 +260,42 @@ describe('runIngest — multi-zip orchestration', () => {
     readZipMock.mockReturnValue('[05/03/2026, 14:23:11] Alice: hi')
     await runIngest(baseArgs(), 'the-secret-key', deps, silent)
     expect(postMock.mock.calls[0][1]).toBe('the-secret-key')
+  })
+
+  it('calls resolveAuthor per message and threads senderPhone + senderDisplayName into the payload', async () => {
+    const { deps, readZipMock, resolveAuthorMock, postMock } = makeDeps()
+    readZipMock.mockReturnValue(
+      [
+        '[05/03/2026, 14:23:11] ~+44 7911 123456: hi from a phone author',
+        '[05/03/2026, 14:24:11] Sarah Jenkins: hi from a named author',
+      ].join('\n'),
+    )
+    resolveAuthorMock.mockImplementation((rawAuthor: string) => {
+      if (/^\+?\d/.test(rawAuthor)) {
+        return { senderPhone: '+447911123456', senderDisplayName: 'Sarah Jenkins' }
+      }
+      return { senderPhone: null, senderDisplayName: 'Sarah Jenkins' }
+    })
+
+    await runIngest(baseArgs(), 'test-key', deps, silent)
+
+    // The WhatsApp parser strips the "~" unknown-contact marker, so the
+    // phone row lands in resolveAuthor as "+44 7911 123456".
+    expect(resolveAuthorMock).toHaveBeenCalledTimes(2)
+    expect(resolveAuthorMock).toHaveBeenNthCalledWith(1, '+44 7911 123456', null)
+    expect(resolveAuthorMock).toHaveBeenNthCalledWith(2, 'Sarah Jenkins', null)
+
+    const payload = postMock.mock.calls[0][2] as IngestPayload
+    expect(payload.messages[0]).toMatchObject({
+      authorName: '+44 7911 123456',
+      senderPhone: '+447911123456',
+      senderDisplayName: 'Sarah Jenkins',
+    })
+    expect(payload.messages[1]).toMatchObject({
+      authorName: 'Sarah Jenkins',
+      senderPhone: null,
+      senderDisplayName: 'Sarah Jenkins',
+    })
   })
 })
 

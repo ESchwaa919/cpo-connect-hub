@@ -267,6 +267,10 @@ interface IngestMessageBody {
   sentAt: string
   sourceExport: string
   embedding: number[]
+  // Optional on the wire so older CLI builds that don't yet emit
+  // the identity fields still POST successfully (back-compat).
+  senderPhone?: string | null
+  senderDisplayName?: string | null
 }
 
 interface IngestPromptTileBody {
@@ -316,7 +320,7 @@ async function batchInsertMessages(
     for (const m of chunk) {
       const base = params.length
       values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::vector)`,
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::vector, $${base + 9}, $${base + 10})`,
       )
       params.push(
         m.channel,
@@ -327,11 +331,13 @@ async function batchInsertMessages(
         m.sourceExport,
         contentHash(m),
         toVectorLiteral(m.embedding),
+        m.senderPhone ?? null,
+        m.senderDisplayName ?? null,
       )
     }
     const result = await pool.query(
       `INSERT INTO cpo_connect.chat_messages
-         (channel, author_name, author_email, message_text, sent_at, source_export, content_hash, embedding)
+         (channel, author_name, author_email, message_text, sent_at, source_export, content_hash, embedding, sender_phone, sender_display_name)
        VALUES ${values.join(',')}
        ON CONFLICT (content_hash) DO NOTHING`,
       params,
