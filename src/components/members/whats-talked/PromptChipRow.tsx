@@ -45,12 +45,11 @@ export function PromptChipRow({
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">Try asking:</p>
-      <div className="flex flex-wrap gap-2" role="list">
+      <div className="flex flex-wrap gap-2">
         {tiles.map((tile) => (
           <button
             key={tile.id}
             type="button"
-            role="listitem"
             disabled={disabled}
             onClick={() => onSelect(tile.query)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-muted hover:bg-muted/80 border border-transparent hover:border-primary/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

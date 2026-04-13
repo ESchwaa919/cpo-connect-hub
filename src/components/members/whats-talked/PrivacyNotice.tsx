@@ -8,39 +8,45 @@ interface PrivacyNoticeProps {
 export function PrivacyNotice({ optedOut }: PrivacyNoticeProps) {
   if (optedOut) {
     return (
-      <div
+      <p
         role="status"
-        className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-foreground"
+        className="flex items-center gap-1.5 text-xs text-muted-foreground"
         data-testid="privacy-notice-opted-out"
       >
-        <ShieldCheck className="h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+        <ShieldCheck
+          className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-hidden="true"
+        />
         <span>
-          You have opted out of question logging. Your questions will still
-          be answered but the text will not be stored in event logs. You can
-          change this in your{' '}
-          <Link to="/members/profile#chat-search-privacy" className="underline underline-offset-2">
+          You have opted out of question logging. Manage in your{' '}
+          <Link
+            to="/members/profile#chat-search-privacy"
+            className="underline underline-offset-2"
+          >
             profile
           </Link>
           .
         </span>
-      </div>
+      </p>
     )
   }
 
   return (
-    <div
-      className="flex items-start gap-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+    <p
+      className="flex items-center gap-1.5 text-xs text-muted-foreground"
       data-testid="privacy-notice-default"
     >
-      <Info className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+      <Info className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
       <span>
-        We may log the text of your questions to improve this feature. You
-        can opt out in your{' '}
-        <Link to="/members/profile#chat-search-privacy" className="underline underline-offset-2">
+        Questions may be logged to improve this feature. Opt out in your{' '}
+        <Link
+          to="/members/profile#chat-search-privacy"
+          className="underline underline-offset-2"
+        >
           profile
         </Link>
         .
       </span>
-    </div>
+    </p>
   )
 }

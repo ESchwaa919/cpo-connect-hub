@@ -220,7 +220,7 @@ describe('WhatsTalked page — privacy disclosure', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /What's Everyone Talking About/i,
+        name: /Search Chat/i,
       }),
     ).toBeInTheDocument()
 
