@@ -1,6 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Clock, Database, Inbox, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Database,
+  Inbox,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 
 interface IngestionRun {
@@ -29,6 +39,26 @@ async function fetchIngestionHistory(): Promise<IngestionHistoryResponse> {
     throw new Error(`Failed to load ingestion history (${res.status})`)
   }
   return (await res.json()) as IngestionHistoryResponse
+}
+
+interface SyncMembersResponse {
+  totalRows: number
+  upserted: number
+  skippedNotJoined: number
+  nameBlank: number
+  phoneFailed: number
+}
+
+async function postSyncMembers(): Promise<SyncMembersResponse> {
+  const res = await fetch('/api/admin/chat/sync-members', {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`sync-members failed (${res.status}): ${body || 'internal'}`)
+  }
+  return (await res.json()) as SyncMembersResponse
 }
 
 // Module-hoisted formatter — avoids instantiating a fresh Intl object
@@ -66,9 +96,27 @@ function statusBadgeVariant(
 }
 
 export default function AdminIngestionHistory() {
+  const queryClient = useQueryClient()
   const query = useQuery<IngestionHistoryResponse>({
     queryKey: ['admin-ingestion-runs'],
     queryFn: fetchIngestionHistory,
+  })
+
+  const [syncResult, setSyncResult] = useState<SyncMembersResponse | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const syncMutation = useMutation<SyncMembersResponse, Error, void>({
+    mutationFn: postSyncMembers,
+    onMutate: () => {
+      setSyncResult(null)
+      setSyncError(null)
+    },
+    onSuccess: (result) => {
+      setSyncResult(result)
+      void queryClient.invalidateQueries({ queryKey: ['admin-ingestion-runs'] })
+    },
+    onError: (err) => {
+      setSyncError(err.message)
+    },
   })
 
   return (
@@ -80,6 +128,46 @@ export default function AdminIngestionHistory() {
           aggregate corpus size across the whole indexed history.
         </p>
       </header>
+
+      <section aria-label="Member directory sync" className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            {syncMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Syncing members…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sync members from sheet
+              </>
+            )}
+          </Button>
+          {syncResult && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckCircle2
+                className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+              Synced {syncResult.upserted} of {syncResult.totalRows} rows
+              {syncResult.phoneFailed > 0 &&
+                ` · ${syncResult.phoneFailed} phone-normalize failures`}
+            </span>
+          )}
+          {syncError && (
+            <span className="flex items-center gap-1.5 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              {syncError}
+            </span>
+          )}
+        </div>
+      </section>
 
       {query.isLoading ? (
         <div

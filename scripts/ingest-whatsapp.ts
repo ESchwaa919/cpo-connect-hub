@@ -34,6 +34,8 @@ import {
   postIngestWithRetry,
 } from './lib/ingest-core.ts'
 import { embedBatch } from './lib/gemini-batch-embed.ts'
+import { resolveAuthor } from '../server/lib/resolveAuthor.ts'
+import { syncMembersFromSheet } from '../server/services/members.ts'
 
 function loadDotEnv(): void {
   try {
@@ -111,10 +113,25 @@ async function main(): Promise<void> {
     throw new Error('GEMINI_API_KEY is not set. Add it to .env before running.')
   }
 
+  // Sync members BEFORE ingest so resolveAuthor can match the new
+  // WhatsApp rows against the current directory. Sheets API failure
+  // is not fatal — ingest can still run with whatever cache is loaded
+  // (first run: empty cache → rows land with null sender_phone, backfill
+  // script can fix them up later).
+  try {
+    const sync = await syncMembersFromSheet()
+    console.log(
+      `[ingest] member sync: total=${sync.totalRows} upserted=${sync.upserted} phoneFailed=${sync.phoneFailed}`,
+    )
+  } catch (err) {
+    console.warn('[ingest] member sync failed (continuing):', (err as Error).message)
+  }
+
   await runIngest(args, ingestKey, {
     readZip: readZipChatTxt,
     embed: embedBatch,
     post: postIngestWithRetry,
+    resolveAuthor,
   })
 }
 

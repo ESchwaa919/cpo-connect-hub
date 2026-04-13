@@ -12,7 +12,7 @@ describe('PrivacyNotice', () => {
     renderWithRouter(<PrivacyNotice optedOut={false} />)
     expect(screen.getByTestId('privacy-notice-default')).toBeInTheDocument()
     expect(
-      screen.getByText(/We may log the text of your questions/i),
+      screen.getByText(/Questions may be logged/i),
     ).toBeInTheDocument()
     const profileLink = screen.getByRole('link', { name: /profile/i })
     expect(profileLink).toHaveAttribute('href', '/members/profile#chat-search-privacy')

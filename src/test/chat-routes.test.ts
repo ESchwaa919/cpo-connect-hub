@@ -77,6 +77,18 @@ function fixedVector(value: number): number[] {
   return new Array(768).fill(value)
 }
 
+/** Makes a 768-dim vector that is *not* a scalar multiple of the seed
+ *  vectors used by the beforeAll block (which are all constant 0.1x).
+ *  The query-time mock returns the same vector so the new row wins cosine
+ *  ordering over the seed rows. */
+function uniqueVector(slot: number): number[] {
+  const v = new Array(768).fill(0.01)
+  // Place a distinctive non-zero at an index derived from `slot` so
+  // different test rows don't collide with each other either.
+  v[slot % 768] = 0.99
+  return v
+}
+
 // -----------------------------------------------------------------------------
 // Shared DB availability guard
 // -----------------------------------------------------------------------------
@@ -347,6 +359,153 @@ dbDescribe('askHandler', () => {
     }
     expect(body.sources[0].authorDisplayName).toBe('A member')
     expect(body.sources[0].authorOptedOut).toBe(true)
+  })
+
+  it('resolves authorDisplayName via the members table when sender_phone matches', async () => {
+    // Unique phone so the test is hermetic from other members rows.
+    const phone = `+4477${randomUUID().replace(/[^0-9]/g, '').slice(0, 9).padEnd(9, '0')}`
+    await pool.query(
+      `INSERT INTO cpo_connect.members (phone, display_name, email)
+       VALUES ($1, 'Live Directory Name', NULL)
+       ON CONFLICT (phone) DO UPDATE SET display_name = EXCLUDED.display_name`,
+      [phone],
+    )
+
+    // Distinct non-parallel vector so pgvector's cosine ordering puts
+    // THIS row first. The seed rows are all scalar multiples of each
+    // other so they'd all tie at cosine-similarity=1 against a constant
+    // query vector — uniqueVector() places a spike at a unique index.
+    const uniqueVec = uniqueVector(100)
+    const hash = `weta-ask-resolve-${randomUUID()}`
+    const insertRes = await pool.query<{ id: string }>(
+      `INSERT INTO cpo_connect.chat_messages
+         (channel, author_name, message_text, sent_at, source_export,
+          content_hash, embedding, sender_phone, sender_display_name)
+       VALUES ('ai', 'Stale Snapshot Name', $1, NOW(), 'weta-ask-resolve',
+               $2, $3::vector, $4, 'Stale Snapshot Name')
+       RETURNING id`,
+      [
+        `weta-ask-resolve-text-${randomUUID()}`,
+        hash,
+        `[${uniqueVec.join(',')}]`,
+        phone,
+      ],
+    )
+    insertedMessageIds.push(insertRes.rows[0].id)
+
+    mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'ok',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const req = makeReq({
+      body: { query: 'what did people say', channel: 'ai', limit: 1 },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(200)
+    const body = bodyOf(res) as {
+      sources: Array<{ authorDisplayName: string }>
+    }
+    expect(body.sources[0].authorDisplayName).toBe('Live Directory Name')
+
+    await pool.query(`DELETE FROM cpo_connect.members WHERE phone = $1`, [
+      phone,
+    ])
+  })
+
+  it('sanitizes raw-phone author_name fallback — no raw digits surface', async () => {
+    const uniqueVec = uniqueVector(200)
+    const hash = `weta-ask-sanitize-${randomUUID()}`
+    const rawAuthor = '+44 7911 123456'
+    const insertRes = await pool.query<{ id: string }>(
+      `INSERT INTO cpo_connect.chat_messages
+         (channel, author_name, message_text, sent_at, source_export,
+          content_hash, embedding, sender_phone, sender_display_name)
+       VALUES ('ai', $1, $2, NOW(), 'weta-ask-sanitize',
+               $3, $4::vector, NULL, NULL)
+       RETURNING id`,
+      [
+        rawAuthor,
+        `weta-ask-sanitize-text-${randomUUID()}`,
+        hash,
+        `[${uniqueVec.join(',')}]`,
+      ],
+    )
+    insertedMessageIds.push(insertRes.rows[0].id)
+
+    mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'ok',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const req = makeReq({
+      body: { query: 'anything', channel: 'ai', limit: 1 },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+
+    const body = bodyOf(res) as {
+      sources: Array<{ authorDisplayName: string }>
+    }
+    const displayed = body.sources[0].authorDisplayName
+    // The raw phone must not appear verbatim anywhere in the response.
+    expect(displayed).not.toContain('7911')
+    expect(displayed).not.toContain('123456')
+    // Must be the sanitized mask: "+44 ···· ···456" or similar.
+    expect(displayed).toMatch(/^\+44 ·+ ·+456$/)
+  })
+
+  it('accepts a channels[] array and filters rows using WHERE channel = ANY($)', async () => {
+    const uniqueVec = uniqueVector(300)
+    const hash = `weta-ask-channels-${randomUUID()}`
+    const insertRes = await pool.query<{ id: string }>(
+      `INSERT INTO cpo_connect.chat_messages
+         (channel, author_name, message_text, sent_at, source_export,
+          content_hash, embedding, sender_phone, sender_display_name)
+       VALUES ('leadership_culture', 'WETA Channels Test', $1, NOW(),
+               'weta-ask-channels', $2, $3::vector, NULL, NULL)
+       RETURNING id`,
+      [
+        `weta-ask-channels-text-${randomUUID()}`,
+        hash,
+        `[${uniqueVec.join(',')}]`,
+      ],
+    )
+    insertedMessageIds.push(insertRes.rows[0].id)
+
+    mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
+    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
+      answer: 'ok',
+      model: 'claude-sonnet-4-5',
+    })
+
+    const req = makeReq({
+      body: {
+        query: 'anything',
+        channels: ['ai', 'leadership_culture'],
+        limit: 1,
+      },
+      user: { id: 's', email: testEmail, name: 'W' },
+    })
+    const res = makeRes()
+    await askHandler(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(200)
+    const body = bodyOf(res) as {
+      sources: Array<{ channel: string; authorDisplayName: string }>
+    }
+    expect(body.sources.length).toBeGreaterThan(0)
+    // At least one source from the requested channels set.
+    const channels = body.sources.map((s) => s.channel)
+    expect(channels.some((c) => c === 'leadership_culture' || c === 'ai')).toBe(
+      true,
+    )
   })
 
   it('respects chat_query_logging_opted_out by redacting the events row', async () => {

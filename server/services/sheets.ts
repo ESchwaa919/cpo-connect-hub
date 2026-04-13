@@ -195,3 +195,23 @@ export async function getDirectory(): Promise<DirectoryEntry[]> {
     return []
   }
 }
+
+/** Every Sheet1 row keyed by header name, WITHOUT the Status filter.
+ *  Used by member-identity sync (server/services/members.ts) which
+ *  needs to see every row in order to apply its own Status filter
+ *  and read the Full Name / Email / Phone number columns. Backed by
+ *  the same `fetchSheet1()` cache as `lookupMember()`, so repeated
+ *  use during a single startup pays one Google Sheets round-trip. */
+export async function fetchSheet1RawRows(): Promise<
+  Array<Record<string, string>>
+> {
+  const { headers, rows } = await fetchSheet1()
+  const trimmed = headers.map((h) => h.trim())
+  return rows.map((row) => {
+    const obj: Record<string, string> = {}
+    trimmed.forEach((h, i) => {
+      obj[h] = row[i] ?? ''
+    })
+    return obj
+  })
+}

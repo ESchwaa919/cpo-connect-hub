@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, X, LogOut, Sun, Moon, Download } from "lucide-react"
+import { Menu, X, LogOut, Sun, Moon, Download, User, ShieldCheck } from "lucide-react"
 import { useInstallPrompt } from "@/hooks/useInstallPrompt"
 import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
@@ -26,14 +26,9 @@ const publicLinks = [
 ]
 
 const memberLinks = [
+  { label: "Search Chat", to: "/members/whats-talked" },
   { label: "Chat Insights", to: "/members/chat-insights" },
-  { label: "What's Talked", to: "/members/whats-talked" },
   { label: "Directory", to: "/members/directory" },
-  { label: "Profile", to: "/members/profile" },
-]
-
-const adminLinks = [
-  { label: "Admin · Ingestion", to: "/members/admin/ingestion-history" },
 ]
 
 export function Navbar() {
@@ -48,9 +43,9 @@ export function Navbar() {
 
   const isLandingPage = location.pathname === "/"
   const isMembersPage = location.pathname.startsWith("/members")
-  const visibleMemberLinks = user?.isAdmin
-    ? [...memberLinks, ...adminLinks]
-    : memberLinks
+  // Profile + Admin · Ingestion moved to the avatar dropdown, so the
+  // top nav is the same for everyone regardless of admin status.
+  const visibleMemberLinks = memberLinks
 
   // Auto-open login modal from location state (redirect from ProtectedRoute)
   useEffect(() => {
@@ -169,7 +164,7 @@ export function Navbar() {
             )}
             {hasChecked && isAuthenticated && isLandingPage && (
               <Button size="sm" asChild>
-                <Link to="/members/chat-insights">Members Area</Link>
+                <Link to="/members/whats-talked">Members Area</Link>
               </Button>
             )}
             {hasChecked && isAuthenticated && isMembersPage && user && (
@@ -193,6 +188,21 @@ export function Navbar() {
                       </p>
                     </div>
                   </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link to="/members/profile">
+                      <User className="mr-2 h-4 w-4" />
+                      Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  {user.isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/members/admin/ingestion-history">
+                        <ShieldCheck className="mr-2 h-4 w-4" />
+                        Admin · Ingestion
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => logout()}>
                     <LogOut className="mr-2 h-4 w-4" />
@@ -249,6 +259,36 @@ export function Navbar() {
                     {link.label}
                   </Link>
                 ))}
+              {isAuthenticated && isMembersPage && (
+                <>
+                  <Link
+                    to="/members/profile"
+                    className={cn(
+                      "text-sm font-medium transition-colors hover:text-foreground",
+                      location.pathname === "/members/profile"
+                        ? "text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Profile
+                  </Link>
+                  {user?.isAdmin && (
+                    <Link
+                      to="/members/admin/ingestion-history"
+                      className={cn(
+                        "text-sm font-medium transition-colors hover:text-foreground",
+                        location.pathname === "/members/admin/ingestion-history"
+                          ? "text-foreground"
+                          : "text-muted-foreground"
+                      )}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin · Ingestion
+                    </Link>
+                  )}
+                </>
+              )}
               <div className="flex flex-col space-y-2 pt-3 border-t">
                 {canInstall && isAuthenticated && isMembersPage && (
                   <Button
@@ -299,7 +339,7 @@ export function Navbar() {
                 {hasChecked && isAuthenticated && isLandingPage && (
                   <Button size="sm" asChild>
                     <Link
-                      to="/members/chat-insights"
+                      to="/members/whats-talked"
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Members Area

@@ -10,48 +10,42 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SourceCard } from './SourceCard'
+import { SourceChip } from './SourceChip'
 import type { AskSuccessResponse, ChatAskError } from './types'
 
-type AnswerPanelState =
+type AnswerBlockState =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'success'; response: AskSuccessResponse }
   | { kind: 'error'; error: ChatAskError }
 
-interface AnswerPanelProps {
-  state: AnswerPanelState
+interface AnswerBlockProps {
+  state: AnswerBlockState
   onRetry: () => void
   /** Stable identifier for the current ask (parent derives from query +
-   *  channel + submission counter). Changes ⇒ focus moves to the answer
-   *  heading so keyboard and screen-reader users land on the new
-   *  response, even on same-query resubmits. */
+   *  channel scope + submission counter). Changes ⇒ focus moves to the
+   *  terminal-state heading so keyboard and screen-reader users land on
+   *  the new response, even on same-query resubmits. */
   focusKey: string
-  /** Current seconds remaining on the shared rate-limit countdown, or
-   *  null when no cooldown is active. Lifted to the parent so both
-   *  AskForm and AnswerPanel show the same value. */
+  /** Seconds remaining on the shared rate-limit countdown, or null when
+   *  no cooldown is active. Lifted to the parent so both AskForm and
+   *  AnswerBlock show the same value. */
   countdownRemaining: number | null
 }
 
-export type { AnswerPanelState }
+export type { AnswerBlockState }
 
-export function AnswerPanel({
+export function AnswerBlock({
   state,
   onRetry,
   focusKey,
   countdownRemaining,
-}: AnswerPanelProps) {
+}: AnswerBlockProps) {
   const successHeadingRef = useRef<HTMLHeadingElement>(null)
   const zeroMatchHeadingRef = useRef<HTMLHeadingElement>(null)
   const errorHeadingRef = useRef<HTMLHeadingElement>(null)
   const lastFocusedKeyRef = useRef<string | null>(null)
 
-  // Move focus to whichever terminal-state heading is now rendered so
-  // keyboard + screen-reader users land on the new result. Covers
-  // success-with-answer, zero-match (answer === null), and error —
-  // idle/loading are skipped. Keyed on focusKey so back-to-back
-  // same-query submits still re-trigger focus (parent bumps a
-  // submission counter into the key).
   useEffect(() => {
     if (state.kind === 'idle' || state.kind === 'loading') return
     if (lastFocusedKeyRef.current === focusKey) return
@@ -123,13 +117,13 @@ function SuccessBody({
   headingRef: React.RefObject<HTMLHeadingElement | null>
 }) {
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-3 p-6">
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <div className="space-y-3">
           <h3
             ref={headingRef}
             tabIndex={-1}
-            className="text-sm font-semibold text-muted-foreground focus:outline-none"
+            className="text-xs font-semibold tracking-wide text-muted-foreground uppercase focus:outline-none"
           >
             Answer
           </h3>
@@ -143,25 +137,21 @@ function SuccessBody({
               {Math.round(response.queryMs)} ms
             </span>
           </div>
-        </CardContent>
-      </Card>
-
-      {response.sources.length > 0 ? (
-        <section aria-labelledby="sources-heading" className="space-y-2">
-          <h3
-            id="sources-heading"
-            className="text-sm font-semibold text-muted-foreground"
-          >
-            Sources ({response.sources.length})
-          </h3>
-          <div className="space-y-2">
-            {response.sources.map((s) => (
-              <SourceCard key={s.id} source={s} />
-            ))}
+        </div>
+        {response.sources.length > 0 ? (
+          <div className="pt-4 border-t border-dashed border-border space-y-2">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Sources · {response.sources.length}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {response.sources.map((s) => (
+                <SourceChip key={s.id} source={s} />
+              ))}
+            </div>
           </div>
-        </section>
-      ) : null}
-    </div>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -208,7 +198,7 @@ function ErrorCard({
   const locked =
     hasCountdown && countdownRemaining !== null && countdownRemaining > 0
   return (
-    <Card className="border-destructive/50 bg-destructive/5" role="alert">
+    <Card className="border-destructive/40 bg-destructive/5" role="alert">
       <CardContent className="flex flex-col gap-3 p-6">
         <div className="flex items-start gap-3">
           <AlertCircle
@@ -223,9 +213,7 @@ function ErrorCard({
             >
               {details.title}
             </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {details.body}
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{details.body}</p>
           </div>
         </div>
         {hasCountdown ? (
@@ -311,4 +299,3 @@ function explainError(err: ChatAskError): ErrorDetails {
       }
   }
 }
-

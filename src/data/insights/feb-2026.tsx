@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { StatCard } from '@/components/members/insights/StatCard'
 import { ChannelSection, type ChannelData } from '@/components/members/insights/ChannelSection'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ChannelScopePicker } from '@/components/members/shared/ChannelScopePicker'
+import type { ChannelScopeValue } from '@/lib/channel-scope-params'
 
 // ── Aggregate stats ──────────────────────────────────────────────────────────
 
@@ -386,6 +388,12 @@ function ChannelStats({
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function February2026() {
+  const [scope, setScope] = useState<ChannelScopeValue>({
+    mode: 'subset',
+    ids: ['ai'],
+  })
+  const activeId = scope.mode === 'subset' ? scope.ids[0] : 'ai'
+
   return (
     <div className="space-y-8">
       {/* Aggregate stats */}
@@ -395,29 +403,36 @@ export default function February2026() {
         ))}
       </div>
 
-      {/* Channel tabs */}
-      <Tabs defaultValue="ai">
-        <TabsList className="bg-muted/50 backdrop-blur-sm">
-          <TabsTrigger value="ai">// AI (812)</TabsTrigger>
-          <TabsTrigger value="general">// General (583)</TabsTrigger>
-          <TabsTrigger value="leadership">// Leadership (88)</TabsTrigger>
-        </TabsList>
+      {/* Channel picker — single-select (one channel at a time) */}
+      <div className="flex justify-end">
+        <ChannelScopePicker
+          value={scope}
+          onChange={setScope}
+          allowMultiSelect={false}
+          showAllOption={false}
+        />
+      </div>
 
-        <TabsContent value="ai" className="mt-6">
+      {activeId === 'ai' && (
+        <div className="mt-6">
           <ChannelStats stats={aiStats} />
           <ChannelSection data={aiChannel} />
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="general" className="mt-6">
+      {activeId === 'general' && (
+        <div className="mt-6">
           <ChannelStats stats={generalStats} />
           <ChannelSection data={generalChannel} />
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="leadership" className="mt-6">
+      {activeId === 'leadership_culture' && (
+        <div className="mt-6">
           <ChannelStats stats={leadershipStats} />
           <ChannelSection data={leadershipChannel} />
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import type {
   EmbedItem,
   EmbeddedItem,
 } from './gemini-batch-embed.ts'
+import type { ResolvedAuthor } from '../../server/lib/resolveAuthor.ts'
 import { sleep } from './sleep.ts'
 
 export interface ZipInput {
@@ -34,6 +35,8 @@ export interface IngestMessage {
   sentAt: string
   sourceExport: string
   embedding: number[]
+  senderPhone: string | null
+  senderDisplayName: string | null
 }
 
 export interface IngestPayload {
@@ -46,6 +49,7 @@ export interface RunDeps {
   readZip: (zipPath: string) => string
   embed: (items: EmbedItem[]) => Promise<EmbeddedItem[]>
   post: (host: string, apiKey: string, payload: IngestPayload) => Promise<void>
+  resolveAuthor: (rawAuthor: string, authorEmail: string | null) => ResolvedAuthor
 }
 
 export type ParseArgsResult =
@@ -142,10 +146,13 @@ export function parseArgs(argv: string[]): ParseArgsResult {
 }
 
 /** Parse every zip in order, filter to the run month, and produce
- *  partially-populated IngestMessage rows (embedding filled later). */
+ *  partially-populated IngestMessage rows (embedding filled later).
+ *  Each row is run through `resolveAuthor` so sender_phone + sender_display_name
+ *  are frozen at ingest time. */
 function parseAndTagAll(
   args: CliArgs,
   readZip: RunDeps['readZip'],
+  resolveAuthor: RunDeps['resolveAuthor'],
 ): IngestMessage[] {
   const rows: IngestMessage[] = []
   for (const zi of args.zips) {
@@ -154,6 +161,7 @@ function parseAndTagAll(
     const parsed = parseWhatsappChat(raw, { timeZone: args.timeZone })
     const monthParsed = filterMonth(parsed, args.month)
     for (const m of monthParsed) {
+      const { senderPhone, senderDisplayName } = resolveAuthor(m.author, null)
       rows.push({
         channel: zi.channel,
         authorName: m.author,
@@ -161,6 +169,8 @@ function parseAndTagAll(
         sentAt: m.sentAt,
         sourceExport,
         embedding: [],
+        senderPhone,
+        senderDisplayName,
       })
     }
   }
@@ -173,7 +183,7 @@ export async function runIngest(
   deps: RunDeps,
   logger: Pick<Console, 'log'> = console,
 ): Promise<void> {
-  const rows = parseAndTagAll(args, deps.readZip)
+  const rows = parseAndTagAll(args, deps.readZip, deps.resolveAuthor)
   const sourceExports = args.zips.map((z) => basename(z.zipPath))
 
   logger.log(
