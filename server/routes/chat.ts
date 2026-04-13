@@ -19,6 +19,7 @@ import {
   type ProfileMatchCandidate,
 } from '../services/authorReconciliation.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
+import { syncMembersFromSheet } from '../services/members.ts'
 
 /** Stable short codes for WETA route responses. Used by the frontend to
  *  discriminate error states without string-matching the message field. */
@@ -595,6 +596,22 @@ export async function ingestionRunsHandler(
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/admin/chat/sync-members — admin-triggered Sheets resync
+// ---------------------------------------------------------------------------
+
+export async function syncMembersHandler(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const result = await syncMembersFromSheet()
+    res.status(200).json(result)
+  } catch (err) {
+    sendServerError(res, 'POST /api/admin/chat/sync-members', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Routers
 // ---------------------------------------------------------------------------
 
@@ -622,4 +639,10 @@ chatAdminRouter.get(
   requireAuth,
   requireAdmin,
   ingestionRunsHandler,
+)
+chatAdminRouter.post(
+  '/sync-members',
+  requireAuth,
+  requireAdmin,
+  syncMembersHandler,
 )
