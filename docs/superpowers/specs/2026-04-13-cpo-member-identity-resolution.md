@@ -16,7 +16,7 @@ This produces inconsistent attribution across the Members Area UI:
 - Different members see different names depending on whose export the data came from
 - Raw phone numbers surface in source chips, contributor charts, and anywhere `author_name` is rendered
 
-The CPO Connect Google Sheet already contains both **name and phone number** for every approved member in the `PublicMemberDirectoryMVP` tab (322 rows, authoritative curated member list). The data for a reverse lookup exists — it just isn't wired into the ingestion pipeline or the rendering path.
+The CPO Connect Google Sheet already contains both **name and phone number** for every approved member in **Sheet1** (the Applications tab, 441 rows, the authoritative source for all member identity data). The `PublicMemberDirectoryMVP` tab is a public-facing VIEW of Sheet1 that intentionally omits phone numbers and emails for privacy. The data for a reverse lookup exists in Sheet1 — it just isn't wired into the ingestion pipeline or the rendering path.
 
 This spec fixes that.
 
@@ -24,7 +24,7 @@ This spec fixes that.
 
 - Every member's display name in the Members Area UI is consistent everywhere, regardless of how their messages were originally exported.
 - No raw phone numbers ever surface in rendered UI. Even as a fallback, numbers are sanitized to `+44 ···· ···999` (country code + last 3 digits).
-- The resolution is driven by `PublicMemberDirectoryMVP` in the Google Sheet, so updating a member's name in the sheet propagates to their historical messages automatically.
+- The resolution is driven by **Sheet1** in the Google Sheet (the Applications tab — same tab already used by `lookupMember()` for magic-link auth), so updating a member's name or phone in the sheet propagates to their historical messages automatically.
 - Historical attribution is preserved when a member leaves or changes identity — old messages keep the name that was canonical at ingest time.
 - New WhatsApp ingestions get clean names from day one; existing ingested data gets cleaned up by a one-time backfill.
 
@@ -84,7 +84,7 @@ Schema (`cpo_connect` schema, raw SQL via `pg`, migration in `server/migrations/
 CREATE TABLE IF NOT EXISTS cpo_connect.members (
   phone         TEXT PRIMARY KEY,         -- normalized E.164, e.g. '+447700900123'
   display_name  TEXT NOT NULL,
-  email         TEXT,                     -- nullable, from PublicMemberDirectoryMVP
+  email         TEXT,                     -- nullable, from Sheet1 col D
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -155,31 +155,33 @@ export function sanitizePhone(e164: string): string {
 
 ### Source tab
 
-`PublicMemberDirectoryMVP` (322 rows as of 2026-03-16 per the memory reference).
+**Sheet1** — the Applications tab, 441 rows. This is the same tab already consumed by `lookupMember(email)` in `server/services/sheets.ts` for magic-link authentication. It's the authoritative source for all member identity data (name, email, phone, status). The `PublicMemberDirectoryMVP` tab is a public-facing view that omits phone numbers and emails for privacy — **do not read from `PublicMemberDirectoryMVP`** in this spec.
 
-Columns we read:
+**Columns we read (verified with Erik 2026-04-13):**
 
 | Column | Header | Used for |
 |---|---|---|
-| A | Name | `members.display_name` |
-| B | Role | `members.role` (optional) |
-| C | LinkedIn | `members.linkedin_url` (optional) |
-| D | email | `members.email` |
-| E | Phone number | `members.phone` (after normalization) |
-| F | Current Org | `members.current_org` (optional) |
+| C | Full Name | `members.display_name` |
+| D | Email | `members.email` |
+| E | Phone Number | `members.phone` (after E.164 normalization) |
 
-**Not Sheet1 (auth tab):** Erik confirmed the curated directory tab is the source of truth for names. Sheet1 is for auth lookups only.
+**Status filter:** Only rows where the `Status` column equals `"Joined"` are synced into `cpo_connect.members`. This matches the behavior of `lookupMember()` for magic-link auth — we treat "approved, joined" members as the canonical identity set. Rows with Status = "Applied", "Rejected", "Withdrawn", etc. are skipped.
+
+**Other columns in Sheet1** (not consumed by this spec): `Status`, `Job Role`, `LinkedIn Profile`, `Location`, `Current or most recent employer`, `Industry`, `Primary Product Focus Areas`, `Areas of Interest`. These are used by other features (auth, directory rendering). This spec intentionally ignores them — YAGNI until we need them.
+
+**Consistency with the Directory page:** The Directory page renders members from `PublicMemberDirectoryMVP`, which is a view of Sheet1. As long as the view faithfully mirrors Sheet1's `Full Name` column (Erik's confirmation 2026-04-13), the name a member sees on the Directory page will match the name on their Search Chat source chips. If the view diverges from Sheet1 at any point (e.g., manual edits or overrides), Directory and Search Chat will drift — flag to fix upstream at the sheet level rather than patching in two places.
 
 ### Sync mechanism
 
 Add a new service function: `syncMembersFromSheet()` in `server/services/sheets.ts` (or a new `members.ts` service file).
 
 Behavior:
-1. Fetch all rows from `PublicMemberDirectoryMVP`
-2. For each row, call `normalizePhone()` on the Phone number cell
-3. If normalization succeeds AND Name is non-empty, upsert into `cpo_connect.members` keyed by normalized phone
-4. If normalization fails, log a warning with the row index + raw value and skip the row
-5. After the pass, log the count of `inserted / updated / skipped`
+1. Fetch all rows from Sheet1
+2. Filter to rows where Status = "Joined" (skip applicants, rejected, withdrawn)
+3. For each joined row, call `normalizePhone()` on column E ("Phone Number")
+4. If normalization succeeds AND column C ("Full Name") is non-empty, upsert into `cpo_connect.members` keyed by normalized phone, with `display_name` from col C and `email` from col D
+5. If normalization fails, log a warning with the row index + raw phone value and skip the row (the member is in the sheet but we can't parse their phone — flag for a manual sheet fix)
+6. After the pass, log the count of `joined / skipped_not_joined / phone_normalized / phone_failed / upserted`
 
 **When does the sync run?**
 - **On server startup** — runs once after migrations, cached result used for the ingest pipeline for the rest of the process lifetime. Simple and sufficient for now.
@@ -287,7 +289,7 @@ A one-time Node script runs in the same PR as this spec, processing every existi
 ## Acceptance criteria
 
 1. `cpo_connect.members` table exists with a normalized E.164 primary key
-2. `syncMembersFromSheet()` populates the table from `PublicMemberDirectoryMVP` — with edge-case logging for rows that can't be normalized
+2. `syncMembersFromSheet()` populates the table from **Sheet1** (filtered to `Status = "Joined"`, reading col C Full Name / col D Email / col E Phone Number) — with edge-case logging for rows that can't be normalized
 3. Sync runs on server startup and via an admin-triggered endpoint
 4. `cpo_connect.chat_messages` has new columns `sender_phone` and `sender_display_name` (via migration `011-member-identity-resolution.sql`)
 5. WhatsApp ingestion pipeline writes both columns for newly ingested messages
