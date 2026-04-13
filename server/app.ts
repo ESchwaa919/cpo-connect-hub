@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import authRouter from './routes/auth.ts'
 import membersRouter from './routes/members.ts'
 import { chatMemberRouter, chatAdminRouter } from './routes/chat.ts'
+import { canonicalHostRedirect } from './middleware/canonicalHost.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21,6 +22,20 @@ export function createApp(options: { serveStatic?: boolean } = {}): Application 
   const { serveStatic = true } = options
 
   const app = express()
+
+  // Render terminates TLS at its load balancer and forwards via
+  // `X-Forwarded-*` headers. Trust the first hop so `req.hostname`,
+  // `req.protocol`, and `req.ip` reflect the real client values
+  // rather than the LB→app loopback. `1` (single hop) is correct for
+  // Render's topology — `true` would over-permissively trust spoofed
+  // forwarded headers from arbitrary clients.
+  app.set('trust proxy', 1)
+
+  // Canonical-host redirect must run BEFORE any other middleware so we
+  // don't waste cycles parsing cookies / bodies for requests that are
+  // about to be 301-redirected to cpoconnect.club. Depends on
+  // `trust proxy` above so `req.hostname` reflects the public host.
+  app.use(canonicalHostRedirect)
 
   app.use(cookieParser())
 
