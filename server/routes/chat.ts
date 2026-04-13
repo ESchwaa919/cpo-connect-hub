@@ -57,7 +57,7 @@ function isValidDateString(s: unknown): s is string {
 // POST /api/chat/ask — synthesized answer with cited sources
 // ---------------------------------------------------------------------------
 
-interface AskSourceDBRow {
+export interface AskSourceDBRow {
   id: string
   channel: string
   author_name: string
@@ -75,7 +75,7 @@ interface AskSourceDBRow {
  *  the order documented in the identity-resolution spec: live members
  *  row → ingest-time frozen snapshot → sanitized phone → sanitized
  *  legacy author_name. Never returns a raw phone number. */
-function pickAuthorDisplay(row: AskSourceDBRow): string {
+export function pickAuthorDisplay(row: AskSourceDBRow): string {
   if (row.live_member_name) return row.live_member_name
   if (row.sender_display_name && !looksLikeRawPhone(row.sender_display_name)) {
     return row.sender_display_name
