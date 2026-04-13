@@ -39,7 +39,7 @@ function App() {
                 path="/members"
                 element={
                   <ProtectedRoute>
-                    <Navigate to="/members/chat-insights" replace />
+                    <Navigate to="/members/whats-talked" replace />
                   </ProtectedRoute>
                 }
               />
