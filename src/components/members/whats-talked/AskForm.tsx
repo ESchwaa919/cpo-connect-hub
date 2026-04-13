@@ -49,7 +49,7 @@ export function AskForm({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask the group chat anything... (Enter to submit, Shift+Enter for a new line)"
+        placeholder="What would you like to know?"
         rows={3}
         maxLength={MAX_QUERY_LENGTH * 2}
         disabled={isLocked}
