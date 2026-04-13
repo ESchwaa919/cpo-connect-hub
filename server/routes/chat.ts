@@ -20,6 +20,11 @@ import {
 } from '../services/authorReconciliation.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 import { syncMembersFromSheet } from '../services/members.ts'
+import {
+  sanitizePhone,
+  sanitizeRawAuthorString,
+  looksLikeRawPhone,
+} from '../lib/phone.ts'
 
 /** Stable short codes for WETA route responses. Used by the frontend to
  *  discriminate error states without string-matching the message field. */
@@ -59,8 +64,24 @@ interface AskSourceDBRow {
   author_email: string | null
   message_text: string
   sent_at: string
+  sender_phone: string | null
+  sender_display_name: string | null
+  live_member_name: string | null
   opted_out: boolean | null
   similarity: number
+}
+
+/** Display-time resolution chain for a chat message's author. Matches
+ *  the order documented in the identity-resolution spec: live members
+ *  row → ingest-time frozen snapshot → sanitized phone → sanitized
+ *  legacy author_name. Never returns a raw phone number. */
+function pickAuthorDisplay(row: AskSourceDBRow): string {
+  if (row.live_member_name) return row.live_member_name
+  if (row.sender_display_name && !looksLikeRawPhone(row.sender_display_name)) {
+    return row.sender_display_name
+  }
+  if (row.sender_phone) return sanitizePhone(row.sender_phone)
+  return sanitizeRawAuthorString(row.author_name)
 }
 
 export async function askHandler(req: Request, res: Response): Promise<void> {
@@ -93,7 +114,21 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
     Math.max(typeof req.body?.limit === 'number' ? req.body.limit : 12, 1),
     30,
   )
-  const channel = typeof req.body?.channel === 'string' ? req.body.channel : null
+  // Accept either `channels: string[]` (preferred, multi-select) or the
+  // legacy `channel: string` (back-compat with pre-redesign clients).
+  // null = all channels (no filter).
+  const channels: string[] | null = (() => {
+    if (Array.isArray(req.body?.channels)) {
+      const arr = (req.body.channels as unknown[]).filter(
+        (c): c is string => typeof c === 'string' && c.length > 0,
+      )
+      return arr.length > 0 ? arr : null
+    }
+    if (typeof req.body?.channel === 'string' && req.body.channel.length > 0) {
+      return [req.body.channel]
+    }
+    return null
+  })()
   const dateFrom = typeof rawDateFrom === 'string' ? rawDateFrom : null
   const dateTo = typeof rawDateTo === 'string' ? rawDateTo : null
 
@@ -111,11 +146,15 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       if (optedOut) {
         trackEvent(AnalyticsEvent.CHAT_QUERY_REDACTED, email, {
           char_count: query.length,
-          channel,
+          channels,
           limit,
         })
       } else {
-        trackEvent(AnalyticsEvent.CHAT_QUERY, email, { query, channel, limit })
+        trackEvent(AnalyticsEvent.CHAT_QUERY, email, {
+          query,
+          channels,
+          limit,
+        })
       }
     })
     .catch((err) => {
@@ -149,18 +188,23 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
         cm.author_email,
         cm.message_text,
         cm.sent_at,
+        cm.sender_phone,
+        cm.sender_display_name,
+        mem.display_name AS live_member_name,
         mp.chat_identification_opted_out AS opted_out,
         1 - (cm.embedding <=> $1::vector) AS similarity
       FROM cpo_connect.chat_messages cm
+      LEFT JOIN cpo_connect.members mem
+        ON mem.phone = cm.sender_phone
       LEFT JOIN cpo_connect.member_profiles mp
         ON cm.author_email = mp.email
       WHERE cm.embedding IS NOT NULL
-        AND ($2::text IS NULL OR cm.channel = $2)
+        AND ($2::text[] IS NULL OR cm.channel = ANY($2::text[]))
         AND ($3::timestamptz IS NULL OR cm.sent_at >= $3)
         AND ($4::timestamptz IS NULL OR cm.sent_at <= $4)
       ORDER BY cm.embedding <=> $1::vector
       LIMIT $5`,
-      [toVectorLiteral(embedding), channel, dateFrom, dateTo, limit],
+      [toVectorLiteral(embedding), channels, dateFrom, dateTo, limit],
     )
 
     if (result.rows.length === 0) {
@@ -178,10 +222,11 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       SynthesisSource & { authorOptedOut: boolean; similarity: number }
     > = result.rows.map((row, i) => {
       const optedOut = row.opted_out === true
+      const resolvedName = pickAuthorDisplay(row)
       return {
         id: String(i + 1),
         channel: row.channel,
-        authorDisplayName: optedOut ? 'A member' : row.author_name,
+        authorDisplayName: optedOut ? 'A member' : resolvedName,
         authorOptedOut: optedOut,
         sentAt: new Date(row.sent_at).toISOString(),
         messageText: row.message_text,
