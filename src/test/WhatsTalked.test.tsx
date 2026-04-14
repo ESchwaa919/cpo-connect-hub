@@ -6,7 +6,6 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import WhatsTalked from '../pages/members/WhatsTalked'
-import { CHAT_SSE_EVENTS } from '../lib/sse-parser'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -34,68 +33,9 @@ interface AskStub {
   headers?: Record<string, string>
 }
 
-interface AskSuccessStub {
-  answer: string | null
-  sources: unknown[]
-  queryMs?: number
-  model?: string | null
-  message?: string
-}
-
-/** Build a Response whose body is an SSE stream mimicking the backend
- *  contract: `sources` → `token` (one big chunk containing the answer) →
- *  `done`. Empty-state bodies (answer: null) collapse to a single
- *  `empty` event. */
-function sseFrame(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-}
-
-function sseSuccessResponse(stub: AskSuccessStub): Response {
-  const encoder = new TextEncoder()
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      if (stub.answer === null) {
-        controller.enqueue(
-          encoder.encode(
-            sseFrame(CHAT_SSE_EVENTS.empty, {
-              message: stub.message ?? '',
-              queryMs: stub.queryMs ?? 0,
-            }),
-          ),
-        )
-      } else {
-        controller.enqueue(
-          encoder.encode(
-            sseFrame(CHAT_SSE_EVENTS.sources, { sources: stub.sources }),
-          ),
-        )
-        controller.enqueue(
-          encoder.encode(
-            sseFrame(CHAT_SSE_EVENTS.token, { text: stub.answer }),
-          ),
-        )
-        controller.enqueue(
-          encoder.encode(
-            sseFrame(CHAT_SSE_EVENTS.done, {
-              model: stub.model ?? 'claude-sonnet-4-5',
-              queryMs: stub.queryMs ?? 0,
-            }),
-          ),
-        )
-      }
-      controller.close()
-    },
-  })
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': 'text/event-stream' },
-  })
-}
-
 function askReply(stub: unknown): Response {
-  // Error-shape stub: { status, body, headers } → plain JSON error
-  // (pre-stream failure path — bad_query, rate_limited, embedding /
-  // synthesis unavailable that surface before any SSE bytes fly).
+  // Accept either a raw success body (becomes 200) or an AskStub with
+  // explicit status/headers for error cases.
   if (
     stub !== null &&
     typeof stub === 'object' &&
@@ -110,8 +50,7 @@ function askReply(stub: unknown): Response {
       },
     })
   }
-  // Success-shape stub: build an SSE stream.
-  return sseSuccessResponse(stub as AskSuccessStub)
+  return jsonResponse(stub)
 }
 
 interface StubRoutes {
