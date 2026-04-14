@@ -61,7 +61,7 @@ describe('chatSynthesis', () => {
     expect(payload.temperature).toBe(0.2)
   })
 
-  it('system prompt allows hedged soft-inference for chat-corpus sources', async () => {
+  it('system prompt directs Claude to synthesize from what is there (launch readiness directive rule)', async () => {
     createMock.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'ok' }],
       model: 'claude-sonnet-4-5',
@@ -71,10 +71,12 @@ describe('chatSynthesis', () => {
     await synthesizeAnswer({ query: 'q', sources: [] })
     const [payload] = createMock.mock.calls[0]
     const system = payload.system as string
-    // New rule: allow hedged inference + forbid fabrication.
+    // Launch readiness cluster C: the rule is now DIRECTIVE (MUST
+    // synthesize) not permissive (may infer). Keeps the hedging
+    // phrases + fabrication guardrail from the previous iteration.
+    expect(system).toContain('you MUST synthesize')
     expect(system).toContain('appears to be')
     expect(system).toContain('Never invent specific facts')
-    expect(system).toContain('WhatsApp chat excerpts')
     // Old over-strict rule phrasing must be gone — it was the
     // "If the sources don't contain enough info, say so plainly. Don't
     // fabricate." line that caused Run-2 refusals.

@@ -35,6 +35,25 @@ export const ChatErrorCode = {
   SYNTHESIS_UNAVAILABLE: 'synthesis_unavailable',
 } as const
 
+/** Cosine-similarity floor applied to pgvector search results. Rows
+ *  below this are dropped before they reach Claude, so low-quality
+ *  matches don't waste input context or bias the answer. Default 0.4
+ *  is deliberately lower than the 0.65 attempt from PR #33 (which
+ *  over-filtered) — this just drops the genuinely noisy tail. Read
+ *  once at module load; rotating requires a process restart. */
+const CHAT_SEARCH_MIN_SIMILARITY: number = (() => {
+  const raw = process.env.CHAT_SEARCH_MIN_SIMILARITY
+  if (raw === undefined || raw === '') return 0.4
+  const n = Number.parseFloat(raw)
+  if (!Number.isFinite(n) || n < 0 || n > 1) {
+    console.warn(
+      `[chat/ask] invalid CHAT_SEARCH_MIN_SIMILARITY=${raw}, falling back to 0.4`,
+    )
+    return 0.4
+  }
+  return n
+})()
+
 /** WETA spec (failure-mode contract for /api/chat/ask and peers) uses
  *  `{ error: 'internal' }` as the 500 response shape — frontend discriminates
  *  on the `error` field value. */
@@ -211,12 +230,20 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       LEFT JOIN cpo_connect.member_profiles mp
         ON cm.author_email = mp.email
       WHERE cm.embedding IS NOT NULL
+        AND (1 - (cm.embedding <=> $1::vector)) > $6
         AND ($2::text[] IS NULL OR cm.channel = ANY($2::text[]))
         AND ($3::timestamptz IS NULL OR cm.sent_at >= $3)
         AND ($4::timestamptz IS NULL OR cm.sent_at <= $4)
       ORDER BY cm.embedding <=> $1::vector
       LIMIT $5`,
-      [toVectorLiteral(embedding), channels, dateFrom, dateTo, limit],
+      [
+        toVectorLiteral(embedding),
+        channels,
+        dateFrom,
+        dateTo,
+        limit,
+        CHAT_SEARCH_MIN_SIMILARITY,
+      ],
     )
 
     if (result.rows.length === 0) {
