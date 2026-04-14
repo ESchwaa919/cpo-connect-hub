@@ -8,6 +8,20 @@
 //     // event.event, event.data
 //   }
 
+/** Shared event-name catalog for the /api/chat/ask SSE protocol. Used
+ *  by the server handler (emission), the client streamAsk (parsing),
+ *  and the handler tests (assertion). Single source of truth prevents
+ *  a typo in any one place from silently breaking the wire format. */
+export const CHAT_SSE_EVENTS = {
+  sources: 'sources',
+  token: 'token',
+  done: 'done',
+  empty: 'empty',
+  error: 'error',
+} as const
+export type ChatSSEEventName =
+  (typeof CHAT_SSE_EVENTS)[keyof typeof CHAT_SSE_EVENTS]
+
 export interface SSEEvent {
   /** Event name from `event:` line. Defaults to `'message'`. */
   event: string
@@ -34,9 +48,11 @@ export async function* readSSE(
       buffer += decoder.decode(value, { stream: true })
 
       let boundary = findBoundary(buffer)
-      while (boundary !== -1) {
-        const raw = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary).replace(/^(\r?\n\r?\n)/, '')
+      while (boundary !== null) {
+        const raw = buffer.slice(0, boundary.index)
+        // Slice past the matched separator in a single step — no extra
+        // string allocation + regex round-trip per boundary.
+        buffer = buffer.slice(boundary.index + boundary.length)
         const event = parseEvent(raw)
         if (event) yield event
         boundary = findBoundary(buffer)
@@ -47,14 +63,17 @@ export async function* readSSE(
   }
 }
 
-/** Return the index of the first event-separator (`\n\n` or `\r\n\r\n`)
- *  in the buffer, or -1 if none. */
-function findBoundary(buffer: string): number {
+/** Return the index + length of the first event-separator (`\n\n` or
+ *  `\r\n\r\n`) in the buffer, or null if none. */
+function findBoundary(
+  buffer: string,
+): { index: number; length: number } | null {
   const nn = buffer.indexOf('\n\n')
   const rn = buffer.indexOf('\r\n\r\n')
-  if (nn === -1) return rn
-  if (rn === -1) return nn
-  return Math.min(nn, rn)
+  if (nn === -1 && rn === -1) return null
+  if (nn === -1) return { index: rn, length: 4 }
+  if (rn === -1) return { index: nn, length: 2 }
+  return nn <= rn ? { index: nn, length: 2 } : { index: rn, length: 4 }
 }
 
 /** Parse a single event chunk (one or more `field: value` lines,

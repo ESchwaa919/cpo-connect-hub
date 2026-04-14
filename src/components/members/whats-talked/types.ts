@@ -44,21 +44,31 @@ export interface PromptTilesResponse {
 }
 
 /** Carries the stable error code so UI branches can discriminate on
- *  `err.code` instead of re-parsing response bodies. */
+ *  `err.code` instead of re-parsing response bodies. Optional
+ *  `partialAnswer` + `partialSources` preserve the text that streamed
+ *  before the SSE `error` event arrived so the UI can surface what
+ *  the user already saw instead of flashing blank. */
 export class ChatAskError extends Error {
   readonly code: ChatErrorCode
   readonly retryAfterSec?: number
   readonly status: number
+  readonly partialAnswer?: string
+  readonly partialSources?: AskSource[]
   constructor(
     code: ChatErrorCode,
     status: number,
     retryAfterSec?: number,
+    partial?: { answer: string; sources: AskSource[] },
   ) {
     super(code)
     this.name = 'ChatAskError'
     this.code = code
     this.status = status
     this.retryAfterSec = retryAfterSec
+    if (partial && partial.answer.length > 0) {
+      this.partialAnswer = partial.answer
+      this.partialSources = partial.sources
+    }
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

@@ -23,7 +23,7 @@ import {
   serializeChannelScopeParam,
   type ChannelScopeValue,
 } from '@/lib/channel-scope-params'
-import { readSSE } from '@/lib/sse-parser'
+import { readSSE, CHAT_SSE_EVENTS } from '@/lib/sse-parser'
 import { useMemberProfile } from '@/hooks/useMemberProfile'
 
 const ASK_STALE_MS = 5 * 60 * 1000
@@ -128,26 +128,27 @@ async function streamAsk(
         continue
       }
 
-      if (event.event === 'sources') {
+      if (event.event === CHAT_SSE_EVENTS.sources) {
         sources = (parsed.sources as AskSource[]) ?? []
         cbs.onSources(sources)
-      } else if (event.event === 'token') {
+      } else if (event.event === CHAT_SSE_EVENTS.token) {
         const text = typeof parsed.text === 'string' ? parsed.text : ''
+        if (text.length === 0) continue
         accumulated += text
         cbs.onToken(text)
-      } else if (event.event === 'done') {
+      } else if (event.event === CHAT_SSE_EVENTS.done) {
         done = {
           model:
             typeof parsed.model === 'string' ? parsed.model : 'unknown',
           queryMs:
             typeof parsed.queryMs === 'number' ? parsed.queryMs : 0,
         }
-      } else if (event.event === 'empty') {
+      } else if (event.event === CHAT_SSE_EVENTS.empty) {
         emptyMessage =
           typeof parsed.message === 'string' ? parsed.message : null
         emptyQueryMs =
           typeof parsed.queryMs === 'number' ? parsed.queryMs : 0
-      } else if (event.event === 'error') {
+      } else if (event.event === CHAT_SSE_EVENTS.error) {
         const code =
           typeof parsed.code === 'string'
             ? (parsed.code as ChatErrorCode)
@@ -156,7 +157,10 @@ async function streamAsk(
           typeof parsed.retryAfterSec === 'number'
             ? parsed.retryAfterSec
             : undefined
-        throw new ChatAskError(code, res.status, retryAfterSec)
+        throw new ChatAskError(code, res.status, retryAfterSec, {
+          answer: accumulated,
+          sources,
+        })
       }
     }
   } catch (err) {
@@ -217,17 +221,14 @@ export default function WhatsTalked() {
     staleTime: TILES_STALE_MS,
   })
 
-  // During streaming, the actual React Query data isn't settled until
-  // the `done` event arrives. The UI reads the partial answer + sources
-  // from these side-channel states so the AnswerBlock can render tokens
-  // as they land. Cleared at the start of every new request.
+  // During streaming, React Query's data isn't settled until the `done`
+  // event arrives. The UI reads the partial answer + sources from these
+  // side-channel states so the AnswerBlock can render tokens as they
+  // land. Cleared at the start of every new request.
   const [partialAnswer, setPartialAnswer] = useState('')
   const [streamingSources, setStreamingSources] = useState<
     AskSource[] | null
   >(null)
-  // Ref for the latest values — the queryFn closure captures setters,
-  // not reads, so we don't need a ref here. Keeping the comment as a
-  // breadcrumb for future refactors.
 
   const askQuery = useQuery<AskSuccessResponse, ChatAskError>({
     queryKey: ['chat-ask', activeQuery, scopeKey],

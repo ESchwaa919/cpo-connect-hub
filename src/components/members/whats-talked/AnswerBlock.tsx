@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import {
   AlertCircle,
   Clock,
@@ -117,7 +117,30 @@ function LoadingCard() {
   )
 }
 
-function StreamingCard({
+/** Shared source-chip row rendered under both streaming + success bodies
+ *  and inside the preserved-partial-answer block in ErrorCard. Memoized
+ *  so the chip row doesn't re-render on every token arrival. */
+const SourcesSection = memo(function SourcesSection({
+  sources,
+}: {
+  sources: AskSource[]
+}) {
+  if (sources.length === 0) return null
+  return (
+    <div className="pt-4 border-t border-dashed border-border space-y-2">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        Sources · {sources.length}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {sources.map((s) => (
+          <SourceChip key={s.id} source={s} />
+        ))}
+      </div>
+    </div>
+  )
+})
+
+const StreamingCard = memo(function StreamingCard({
   partialAnswer,
   sources,
 }: {
@@ -142,22 +165,11 @@ function StreamingCard({
             />
           </p>
         </div>
-        {sources.length > 0 ? (
-          <div className="pt-4 border-t border-dashed border-border space-y-2">
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              Sources · {sources.length}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {sources.map((s) => (
-                <SourceChip key={s.id} source={s} />
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <SourcesSection sources={sources} />
       </CardContent>
     </Card>
   )
-}
+})
 
 function SuccessBody({
   response,
@@ -188,18 +200,7 @@ function SuccessBody({
             </span>
           </div>
         </div>
-        {response.sources.length > 0 ? (
-          <div className="pt-4 border-t border-dashed border-border space-y-2">
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              Sources · {response.sources.length}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {response.sources.map((s) => (
-                <SourceChip key={s.id} source={s} />
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <SourcesSection sources={response.sources} />
       </CardContent>
     </Card>
   )
@@ -247,9 +248,27 @@ function ErrorCard({
   const hasCountdown = details.retryAfterSec !== undefined
   const locked =
     hasCountdown && countdownRemaining !== null && countdownRemaining > 0
+  const hasPartial =
+    typeof error.partialAnswer === 'string' && error.partialAnswer.length > 0
   return (
     <Card className="border-destructive/40 bg-destructive/5" role="alert">
       <CardContent className="flex flex-col gap-3 p-6">
+        {hasPartial && (
+          <div className="rounded-md border border-border bg-background/50 p-4 space-y-3">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Answer (incomplete)
+            </p>
+            <p
+              className="whitespace-pre-wrap text-sm leading-relaxed"
+              data-testid="answer-partial-preserved"
+            >
+              {error.partialAnswer}
+            </p>
+            {error.partialSources && error.partialSources.length > 0 ? (
+              <SourcesSection sources={error.partialSources} />
+            ) : null}
+          </div>
+        )}
         <div className="flex items-start gap-3">
           <AlertCircle
             className="h-5 w-5 flex-shrink-0 text-destructive"

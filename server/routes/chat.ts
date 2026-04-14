@@ -15,6 +15,10 @@ import {
   type SynthesisSource,
 } from '../services/chatSynthesis.ts'
 import {
+  CHAT_SSE_EVENTS,
+  type ChatSSEEventName,
+} from '../../src/lib/sse-parser.ts'
+import {
   matchAuthor,
   type ProfileMatchCandidate,
 } from '../services/authorReconciliation.ts'
@@ -64,12 +68,17 @@ function toVectorLiteral(v: number[]): string {
   return `[${v.join(',')}]`
 }
 
-/** Emit a single Server-Sent Event frame on the response. Flushes
- *  immediately via `res.flush()` when the underlying socket supports it
- *  (Render's proxy respects this; nginx does too). */
-function writeSSE(res: Response, event: string, data: unknown): void {
-  res.write(`event: ${event}\n`)
-  res.write(`data: ${JSON.stringify(data)}\n\n`)
+/** Emit a single Server-Sent Event frame on the response. Writes the
+ *  whole `event:\ndata:\n\n` frame in one call to halve the socket
+ *  write count on the token hot path (hundreds of events per response).
+ *  Flushes immediately via `res.flush()` when the underlying socket
+ *  supports it (Render's proxy respects this; nginx does too). */
+function writeSSE(
+  res: Response,
+  event: ChatSSEEventName,
+  data: unknown,
+): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   const maybeFlushable = res as Response & { flush?: () => void }
   maybeFlushable.flush?.()
 }
@@ -255,7 +264,7 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
     res.flushHeaders?.()
 
     if (result.rows.length === 0) {
-      writeSSE(res, 'empty', {
+      writeSSE(res, CHAT_SSE_EVENTS.empty, {
         message: 'No relevant chat history found for this question',
         queryMs: Date.now() - startedAt,
       })
@@ -281,24 +290,24 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
 
     // Flush sources as soon as the DB query returns — client can
     // render the source chip row before any Claude tokens arrive.
-    writeSSE(res, 'sources', { sources })
+    writeSSE(res, CHAT_SSE_EVENTS.sources, { sources })
 
     try {
       let model: string | null = null
       for await (const event of synthesizeAnswerStream({ query, sources })) {
         if (event.kind === 'token') {
-          writeSSE(res, 'token', { text: event.text })
+          writeSSE(res, CHAT_SSE_EVENTS.token, { text: event.text })
         } else if (event.kind === 'done') {
           model = event.model
         }
       }
-      writeSSE(res, 'done', {
+      writeSSE(res, CHAT_SSE_EVENTS.done, {
         model: model ?? 'unknown',
         queryMs: Date.now() - startedAt,
       })
     } catch (err) {
       if (err instanceof SynthesisUnavailableError) {
-        writeSSE(res, 'error', {
+        writeSSE(res, CHAT_SSE_EVENTS.error, {
           code: ChatErrorCode.SYNTHESIS_UNAVAILABLE,
         })
       } else {
@@ -306,7 +315,7 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
           'POST /api/chat/ask synthesis error:',
           (err as Error).message,
         )
-        writeSSE(res, 'error', { code: 'internal' })
+        writeSSE(res, CHAT_SSE_EVENTS.error, { code: 'internal' })
       }
     }
     res.end()
@@ -317,7 +326,7 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
     // event + ending the stream.
     if (res.headersSent) {
       try {
-        writeSSE(res, 'error', { code: 'internal' })
+        writeSSE(res, CHAT_SSE_EVENTS.error, { code: 'internal' })
       } catch {
         /* socket already closed */
       }

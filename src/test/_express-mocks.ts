@@ -2,6 +2,7 @@
 // Shared across requireIngestAuth, chat-routes, and any future route suites.
 import { vi } from 'vitest'
 import type { Request, Response } from 'express'
+import { readSSE, type SSEEvent } from '../lib/sse-parser'
 
 export function makeRes(): Response {
   let headersSent = false
@@ -39,31 +40,35 @@ export function makeRes(): Response {
 }
 
 /** Parse the SSE chunks accumulated by `res.write` into structured
- *  events. Used by askHandler streaming tests. */
-export function sseEvents(res: Response): Array<{ event: string; data: unknown }> {
+ *  events. Drives the real `readSSE` parser from src/lib/sse-parser so
+ *  the tests exercise the same code path as the production client —
+ *  prevents the two implementations from drifting. */
+export async function sseEvents(
+  res: Response,
+): Promise<Array<{ event: string; data: unknown }>> {
   const writes = (res as unknown as { __sseWrites: string[] }).__sseWrites ?? []
   const buffer = writes.join('')
-  const events: Array<{ event: string; data: unknown }> = []
-  for (const chunk of buffer.split('\n\n')) {
-    const lines = chunk.split('\n').filter((l) => l.length > 0)
-    if (lines.length === 0) continue
-    let eventName = 'message'
-    let dataRaw = ''
-    for (const line of lines) {
-      if (line.startsWith('event: ')) eventName = line.slice('event: '.length)
-      else if (line.startsWith('data: ')) dataRaw += line.slice('data: '.length)
-    }
-    if (dataRaw.length === 0) continue
-    let parsed: unknown = dataRaw
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(buffer))
+      controller.close()
+    },
+  })
+  const out: Array<{ event: string; data: unknown }> = []
+  for await (const event of readSSE(stream.getReader())) {
+    let parsed: unknown = event.data
     try {
-      parsed = JSON.parse(dataRaw)
+      parsed = JSON.parse(event.data)
     } catch {
       /* keep as raw string */
     }
-    events.push({ event: eventName, data: parsed })
+    out.push({ event: event.event, data: parsed })
   }
-  return events
+  return out
 }
+
+export type { SSEEvent }
 
 export function makeReq(overrides: Partial<Request> = {}): Request {
   return {

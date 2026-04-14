@@ -89,8 +89,10 @@ interface SSEEvent {
   data: Record<string, unknown>
 }
 
-function typedEvents(res: ReturnType<typeof makeRes>): SSEEvent[] {
-  return sseEvents(res) as SSEEvent[]
+async function typedEvents(
+  res: ReturnType<typeof makeRes>,
+): Promise<SSEEvent[]> {
+  return (await sseEvents(res)) as SSEEvent[]
 }
 
 /** Fixed 768-dim vector of 0.1s — good enough for pgvector to index and
@@ -297,7 +299,7 @@ dbDescribe('askHandler', () => {
     // Stream is already open (sources event flushed), so the error
     // surfaces as an SSE event, not a JSON 503.
     expect(res.status).toHaveBeenCalledWith(200)
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const errorEvent = events.find((e) => e.event === 'error')
     expect(errorEvent).toBeDefined()
     expect(errorEvent?.data).toMatchObject({ code: 'synthesis_unavailable' })
@@ -314,7 +316,7 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const emptyEvent = events.find((e) => e.event === 'empty')
     expect(emptyEvent).toBeDefined()
     expect(emptyEvent?.data).toMatchObject({
@@ -340,7 +342,7 @@ dbDescribe('askHandler', () => {
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream')
     expect(res.end).toHaveBeenCalled()
 
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     // Sources event must be first — client renders chip row before tokens.
     expect(events[0].event).toBe('sources')
     const sourcesData = events[0].data as {
@@ -388,7 +390,7 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const sourcesEvent = events.find((e) => e.event === 'sources')
     expect(sourcesEvent).toBeDefined()
     const sourcesData = sourcesEvent!.data as {
@@ -441,7 +443,7 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const sourcesEvent = events.find((e) => e.event === 'sources')
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
@@ -483,7 +485,7 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const sourcesEvent = events.find((e) => e.event === 'sources')
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
@@ -529,7 +531,7 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const events = typedEvents(res)
+    const events = await typedEvents(res)
     const sourcesEvent = events.find((e) => e.event === 'sources')
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ channel: string; authorDisplayName: string }>
@@ -1510,18 +1512,19 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     const askBeforeRes = makeRes()
     await askHandler(askBeforeReq, askBeforeRes)
 
-    const beforeSources = (() => {
-      const sourcesEvent = typedEvents(askBeforeRes).find(
-        (e) => e.event === 'sources',
-      )
-      return (sourcesEvent!.data as {
+    const beforeEventsList = await typedEvents(askBeforeRes)
+    const beforeSourcesEvent = beforeEventsList.find(
+      (e) => e.event === 'sources',
+    )
+    const beforeSources = (
+      beforeSourcesEvent!.data as {
         sources: Array<{
           authorDisplayName: string
           authorOptedOut: boolean
           messageText: string
         }>
-      }).sources
-    })()
+      }
+    ).sources
 
     const ourSourceBefore = beforeSources.find(
       (s) => s.messageText === uniqueText,
@@ -1556,18 +1559,19 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     const askAfterRes = makeRes()
     await askHandler(askAfterReq, askAfterRes)
 
-    const afterSources = (() => {
-      const sourcesEvent = typedEvents(askAfterRes).find(
-        (e) => e.event === 'sources',
-      )
-      return (sourcesEvent!.data as {
+    const afterEventsList = await typedEvents(askAfterRes)
+    const afterSourcesEvent = afterEventsList.find(
+      (e) => e.event === 'sources',
+    )
+    const afterSources = (
+      afterSourcesEvent!.data as {
         sources: Array<{
           authorDisplayName: string
           authorOptedOut: boolean
           messageText: string
         }>
-      }).sources
-    })()
+      }
+    ).sources
 
     const ourSourceAfter = afterSources.find(
       (s) => s.messageText === uniqueText,
