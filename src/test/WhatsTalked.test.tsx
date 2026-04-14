@@ -33,9 +33,64 @@ interface AskStub {
   headers?: Record<string, string>
 }
 
+interface AskSuccessStub {
+  answer: string | null
+  sources: unknown[]
+  queryMs?: number
+  model?: string | null
+  message?: string
+}
+
+/** Build a Response whose body is an SSE stream mimicking the backend
+ *  contract: `sources` → `token` (one big chunk containing the answer) →
+ *  `done`. Empty-state bodies (answer: null) collapse to a single
+ *  `empty` event. */
+function sseSuccessResponse(stub: AskSuccessStub): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (stub.answer === null) {
+        controller.enqueue(
+          encoder.encode(
+            `event: empty\ndata: ${JSON.stringify({
+              message: stub.message ?? '',
+              queryMs: stub.queryMs ?? 0,
+            })}\n\n`,
+          ),
+        )
+      } else {
+        controller.enqueue(
+          encoder.encode(
+            `event: sources\ndata: ${JSON.stringify({ sources: stub.sources })}\n\n`,
+          ),
+        )
+        controller.enqueue(
+          encoder.encode(
+            `event: token\ndata: ${JSON.stringify({ text: stub.answer })}\n\n`,
+          ),
+        )
+        controller.enqueue(
+          encoder.encode(
+            `event: done\ndata: ${JSON.stringify({
+              model: stub.model ?? 'claude-sonnet-4-5',
+              queryMs: stub.queryMs ?? 0,
+            })}\n\n`,
+          ),
+        )
+      }
+      controller.close()
+    },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+}
+
 function askReply(stub: unknown): Response {
-  // Accept either a raw success body (becomes 200) or an AskStub with
-  // explicit status/headers for error cases.
+  // Error-shape stub: { status, body, headers } → plain JSON error
+  // (pre-stream failure path — bad_query, rate_limited, embedding /
+  // synthesis unavailable that surface before any SSE bytes fly).
   if (
     stub !== null &&
     typeof stub === 'object' &&
@@ -50,7 +105,8 @@ function askReply(stub: unknown): Response {
       },
     })
   }
-  return jsonResponse(stub)
+  // Success-shape stub: build an SSE stream.
+  return sseSuccessResponse(stub as AskSuccessStub)
 }
 
 interface StubRoutes {

@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => {
   return {
     embedQueryMock: vi.fn(),
     synthesizeAnswerMock: vi.fn(),
+    synthesizeAnswerStreamMock: vi.fn(),
     EmbeddingUnavailableError,
     SynthesisUnavailableError,
   }
@@ -60,8 +61,20 @@ vi.mock('../../server/services/chatEmbedding', () => ({
 
 vi.mock('../../server/services/chatSynthesis', () => ({
   synthesizeAnswer: mocks.synthesizeAnswerMock,
+  synthesizeAnswerStream: mocks.synthesizeAnswerStreamMock,
   SynthesisUnavailableError: mocks.SynthesisUnavailableError,
 }))
+
+/** Build an async generator mock for synthesizeAnswerStream that yields
+ *  the given text as a single token event followed by a done event.
+ *  Keeps test setup noise low — individual tests can still push their
+ *  own implementation via mockImplementationOnce for edge cases. */
+function streamingMock(text: string, model = 'claude-sonnet-4-5') {
+  return async function* () {
+    yield { kind: 'token' as const, text }
+    yield { kind: 'done' as const, model }
+  }
+}
 
 import {
   askHandler,
@@ -69,7 +82,16 @@ import {
   ingestHandler,
   ingestionRunsHandler,
 } from '../../server/routes/chat'
-import { makeRes, makeReq, bodyOf } from './_express-mocks'
+import { makeRes, makeReq, bodyOf, sseEvents } from './_express-mocks'
+
+interface SSEEvent {
+  event: string
+  data: Record<string, unknown>
+}
+
+function typedEvents(res: ReturnType<typeof makeRes>): SSEEvent[] {
+  return sseEvents(res) as SSEEvent[]
+}
 
 /** Fixed 768-dim vector of 0.1s — good enough for pgvector to index and
  *  order by, and deterministic enough for tests to assert on. */
@@ -152,7 +174,7 @@ dbDescribe('askHandler', () => {
 
   beforeEach(async () => {
     mocks.embedQueryMock.mockReset()
-    mocks.synthesizeAnswerMock.mockReset()
+    mocks.synthesizeAnswerStreamMock.mockReset()
     // Reset opt-out flags between tests
     await pool.query(
       `UPDATE cpo_connect.member_profiles
@@ -211,10 +233,7 @@ dbDescribe('askHandler', () => {
 
   it('accepts well-formed ISO dateFrom/dateTo on the happy path', async () => {
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const req = makeReq({
       body: {
@@ -228,14 +247,17 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    // Either 200 (rows found) or 200 with empty-state shape — both are
-    // valid outcomes for the filter window. The critical assertion is
-    // that we did NOT short-circuit with a 400.
+    // Either SSE 200 (rows found) or SSE 200 with empty event — both
+    // are valid outcomes for the filter window. The critical assertion
+    // is that we did NOT short-circuit with a 400.
     expect(res.status).toHaveBeenCalledWith(200)
     expect(mocks.embedQueryMock).toHaveBeenCalledTimes(1)
   })
 
-  it('returns 503 embedding_unavailable with Retry-After header on embed error', async () => {
+  it('returns 503 embedding_unavailable with Retry-After header on embed error (pre-stream, plain JSON)', async () => {
+    // Embedding failures happen BEFORE the SSE headers are flushed, so
+    // the handler still returns a plain JSON 503 — clients discriminate
+    // by Content-Type.
     mocks.embedQueryMock.mockRejectedValueOnce(
       new mocks.EmbeddingUnavailableError('gemini 429'),
     )
@@ -253,13 +275,16 @@ dbDescribe('askHandler', () => {
       error: 'embedding_unavailable',
       retryAfterSec: 30,
     })
-    expect(mocks.synthesizeAnswerMock).not.toHaveBeenCalled()
+    expect(mocks.synthesizeAnswerStreamMock).not.toHaveBeenCalled()
   })
 
-  it('returns 503 synthesis_unavailable on claude error', async () => {
+  it('emits an SSE `error` event with synthesis_unavailable on claude stream failure', async () => {
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
-    mocks.synthesizeAnswerMock.mockRejectedValueOnce(
-      new mocks.SynthesisUnavailableError('claude timeout'),
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(
+      // eslint-disable-next-line require-yield
+      async function* () {
+        throw new mocks.SynthesisUnavailableError('claude timeout')
+      },
     )
 
     const req = makeReq({
@@ -269,11 +294,16 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    expect(res.status).toHaveBeenCalledWith(503)
-    expect(bodyOf(res)).toMatchObject({ error: 'synthesis_unavailable' })
+    // Stream is already open (sources event flushed), so the error
+    // surfaces as an SSE event, not a JSON 503.
+    expect(res.status).toHaveBeenCalledWith(200)
+    const events = typedEvents(res)
+    const errorEvent = events.find((e) => e.event === 'error')
+    expect(errorEvent).toBeDefined()
+    expect(errorEvent?.data).toMatchObject({ code: 'synthesis_unavailable' })
   })
 
-  it('returns 200 empty-state shape when vector search finds zero rows', async () => {
+  it('emits an SSE `empty` event when vector search finds zero rows', async () => {
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.5))
 
     const req = makeReq({
@@ -284,25 +314,20 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const body = bodyOf(res) as {
-      answer: string | null
-      sources: unknown[]
-      message: string
-      model: null
-    }
-    expect(body.answer).toBeNull()
-    expect(body.sources).toEqual([])
-    expect(body.message).toMatch(/No relevant chat history/)
-    expect(body.model).toBeNull()
-    expect(mocks.synthesizeAnswerMock).not.toHaveBeenCalled()
+    const events = typedEvents(res)
+    const emptyEvent = events.find((e) => e.event === 'empty')
+    expect(emptyEvent).toBeDefined()
+    expect(emptyEvent?.data).toMatchObject({
+      message: expect.stringMatching(/No relevant chat history/),
+    })
+    expect(mocks.synthesizeAnswerStreamMock).not.toHaveBeenCalled()
   })
 
-  it('returns the synthesized answer with sources on the happy path', async () => {
+  it('streams sources + tokens + done on the happy path', async () => {
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'People say interesting things [1].',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(
+      streamingMock('People say interesting things [1].'),
+    )
 
     const req = makeReq({
       body: { query: 'anything', channel: 'ai', limit: 3 },
@@ -312,21 +337,33 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const body = bodyOf(res) as {
-      answer: string
-      sources: Array<{ authorDisplayName: string; authorOptedOut: boolean }>
-      model: string
-    }
-    expect(body.answer).toContain('People say')
-    expect(body.model).toBe('claude-sonnet-4-5')
-    expect(body.sources.length).toBeGreaterThan(0)
-    // Default opt-out is false — real author names should surface
-    expect(body.sources[0].authorDisplayName).toMatch(/WETA Test Author/)
-    expect(body.sources[0].authorOptedOut).toBe(false)
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream')
+    expect(res.end).toHaveBeenCalled()
 
-    // synthesizeAnswer was called with the sources list
-    expect(mocks.synthesizeAnswerMock).toHaveBeenCalledTimes(1)
-    const synthCall = mocks.synthesizeAnswerMock.mock.calls[0][0] as {
+    const events = typedEvents(res)
+    // Sources event must be first — client renders chip row before tokens.
+    expect(events[0].event).toBe('sources')
+    const sourcesData = events[0].data as {
+      sources: Array<{ authorDisplayName: string; authorOptedOut: boolean }>
+    }
+    expect(sourcesData.sources.length).toBeGreaterThan(0)
+    expect(sourcesData.sources[0].authorDisplayName).toMatch(/WETA Test Author/)
+    expect(sourcesData.sources[0].authorOptedOut).toBe(false)
+
+    const tokenEvents = events.filter((e) => e.event === 'token')
+    expect(tokenEvents.length).toBeGreaterThan(0)
+    const concatenated = tokenEvents
+      .map((e) => (e.data as { text: string }).text)
+      .join('')
+    expect(concatenated).toContain('People say')
+
+    const doneEvent = events.find((e) => e.event === 'done')
+    expect(doneEvent).toBeDefined()
+    expect(doneEvent?.data).toMatchObject({ model: 'claude-sonnet-4-5' })
+
+    // synthesizeAnswerStream was called with the sources list
+    expect(mocks.synthesizeAnswerStreamMock).toHaveBeenCalledTimes(1)
+    const synthCall = mocks.synthesizeAnswerStreamMock.mock.calls[0][0] as {
       sources: unknown[]
     }
     expect(synthCall.sources.length).toBeGreaterThan(0)
@@ -342,10 +379,7 @@ dbDescribe('askHandler', () => {
     )
 
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const req = makeReq({
       body: { query: 'q', channel: 'ai' },
@@ -354,11 +388,14 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    const body = bodyOf(res) as {
+    const events = typedEvents(res)
+    const sourcesEvent = events.find((e) => e.event === 'sources')
+    expect(sourcesEvent).toBeDefined()
+    const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string; authorOptedOut: boolean }>
     }
-    expect(body.sources[0].authorDisplayName).toBe('A member')
-    expect(body.sources[0].authorOptedOut).toBe(true)
+    expect(sourcesData.sources[0].authorDisplayName).toBe('A member')
+    expect(sourcesData.sources[0].authorOptedOut).toBe(true)
   })
 
   it('resolves authorDisplayName via the members table when sender_phone matches', async () => {
@@ -394,10 +431,7 @@ dbDescribe('askHandler', () => {
     insertedMessageIds.push(insertRes.rows[0].id)
 
     mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const req = makeReq({
       body: { query: 'what did people say', channel: 'ai', limit: 1 },
@@ -407,10 +441,12 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const body = bodyOf(res) as {
+    const events = typedEvents(res)
+    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
     }
-    expect(body.sources[0].authorDisplayName).toBe('Live Directory Name')
+    expect(sourcesData.sources[0].authorDisplayName).toBe('Live Directory Name')
 
     await pool.query(`DELETE FROM cpo_connect.members WHERE phone = $1`, [
       phone,
@@ -438,10 +474,7 @@ dbDescribe('askHandler', () => {
     insertedMessageIds.push(insertRes.rows[0].id)
 
     mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const req = makeReq({
       body: { query: 'anything', channel: 'ai', limit: 1 },
@@ -450,10 +483,12 @@ dbDescribe('askHandler', () => {
     const res = makeRes()
     await askHandler(req, res)
 
-    const body = bodyOf(res) as {
+    const events = typedEvents(res)
+    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
     }
-    const displayed = body.sources[0].authorDisplayName
+    const displayed = sourcesData.sources[0].authorDisplayName
     // The raw phone must not appear verbatim anywhere in the response.
     expect(displayed).not.toContain('7911')
     expect(displayed).not.toContain('123456')
@@ -480,10 +515,7 @@ dbDescribe('askHandler', () => {
     insertedMessageIds.push(insertRes.rows[0].id)
 
     mocks.embedQueryMock.mockResolvedValueOnce(uniqueVec)
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const req = makeReq({
       body: {
@@ -497,12 +529,14 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     expect(res.status).toHaveBeenCalledWith(200)
-    const body = bodyOf(res) as {
+    const events = typedEvents(res)
+    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesData = sourcesEvent!.data as {
       sources: Array<{ channel: string; authorDisplayName: string }>
     }
-    expect(body.sources.length).toBeGreaterThan(0)
+    expect(sourcesData.sources.length).toBeGreaterThan(0)
     // At least one source from the requested channels set.
-    const channels = body.sources.map((s) => s.channel)
+    const channels = sourcesData.sources.map((s) => s.channel)
     expect(channels.some((c) => c === 'leadership_culture' || c === 'ai')).toBe(
       true,
     )
@@ -518,10 +552,7 @@ dbDescribe('askHandler', () => {
     )
 
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.1))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'ok',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(streamingMock('ok'))
 
     const uniqueQuery = `weta-test-${randomUUID()}-should-not-be-logged`
     const req = makeReq({
@@ -1411,7 +1442,7 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
 
   beforeEach(() => {
     mocks.embedQueryMock.mockReset()
-    mocks.synthesizeAnswerMock.mockReset()
+    mocks.synthesizeAnswerStreamMock.mockReset()
   })
 
   it('opt-out flag redacts the member name end-to-end after ingest via reconciliation', async () => {
@@ -1468,10 +1499,9 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     )
 
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.42))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'The community discussed pricing strategy.',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(
+      streamingMock('The community discussed pricing strategy.'),
+    )
 
     const askBeforeReq = makeReq({
       body: { query: 'pricing', channel: 'leadership_culture', limit: 5 },
@@ -1480,15 +1510,20 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     const askBeforeRes = makeRes()
     await askHandler(askBeforeReq, askBeforeRes)
 
-    const beforeBody = bodyOf(askBeforeRes) as {
-      sources: Array<{
-        authorDisplayName: string
-        authorOptedOut: boolean
-        messageText: string
-      }>
-    }
+    const beforeSources = (() => {
+      const sourcesEvent = typedEvents(askBeforeRes).find(
+        (e) => e.event === 'sources',
+      )
+      return (sourcesEvent!.data as {
+        sources: Array<{
+          authorDisplayName: string
+          authorOptedOut: boolean
+          messageText: string
+        }>
+      }).sources
+    })()
 
-    const ourSourceBefore = beforeBody.sources.find(
+    const ourSourceBefore = beforeSources.find(
       (s) => s.messageText === uniqueText,
     )
     expect(ourSourceBefore).toBeDefined()
@@ -1510,10 +1545,9 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     // Step 4 — ASK AGAIN. The same message must now render as 'A member'.
     // ------------------------------------------------------------
     mocks.embedQueryMock.mockResolvedValueOnce(fixedVector(0.42))
-    mocks.synthesizeAnswerMock.mockResolvedValueOnce({
-      answer: 'A member discussed pricing strategy.',
-      model: 'claude-sonnet-4-5',
-    })
+    mocks.synthesizeAnswerStreamMock.mockImplementationOnce(
+      streamingMock('A member discussed pricing strategy.'),
+    )
 
     const askAfterReq = makeReq({
       body: { query: 'pricing', channel: 'leadership_culture', limit: 5 },
@@ -1522,15 +1556,20 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     const askAfterRes = makeRes()
     await askHandler(askAfterReq, askAfterRes)
 
-    const afterBody = bodyOf(askAfterRes) as {
-      sources: Array<{
-        authorDisplayName: string
-        authorOptedOut: boolean
-        messageText: string
-      }>
-    }
+    const afterSources = (() => {
+      const sourcesEvent = typedEvents(askAfterRes).find(
+        (e) => e.event === 'sources',
+      )
+      return (sourcesEvent!.data as {
+        sources: Array<{
+          authorDisplayName: string
+          authorOptedOut: boolean
+          messageText: string
+        }>
+      }).sources
+    })()
 
-    const ourSourceAfter = afterBody.sources.find(
+    const ourSourceAfter = afterSources.find(
       (s) => s.messageText === uniqueText,
     )
     expect(ourSourceAfter).toBeDefined()
@@ -1539,7 +1578,7 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
     expect(ourSourceAfter?.authorOptedOut).toBe(true)
     // Belt-and-suspenders: the real name should not appear anywhere in
     // the sources array of the post-opt-out response.
-    const allDisplayNames = afterBody.sources.map((s) => s.authorDisplayName)
+    const allDisplayNames = afterSources.map((s) => s.authorDisplayName)
     expect(allDisplayNames).not.toContain(memberName)
   })
 })

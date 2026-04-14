@@ -11,11 +11,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SourceChip } from './SourceChip'
-import type { AskSuccessResponse, ChatAskError } from './types'
+import type { AskSource, AskSuccessResponse, ChatAskError } from './types'
 
 type AnswerBlockState =
   | { kind: 'idle' }
   | { kind: 'loading' }
+  | { kind: 'streaming'; partialAnswer: string; sources: AskSource[] }
   | { kind: 'success'; response: AskSuccessResponse }
   | { kind: 'error'; error: ChatAskError }
 
@@ -64,10 +65,17 @@ export function AnswerBlock({
   }, [state, focusKey])
 
   const isLoading = state.kind === 'loading'
+  const isStreaming = state.kind === 'streaming'
 
   return (
-    <div aria-live="polite" aria-busy={isLoading}>
+    <div aria-live="polite" aria-busy={isLoading || isStreaming}>
       {isLoading ? <LoadingCard /> : null}
+      {isStreaming ? (
+        <StreamingCard
+          partialAnswer={state.partialAnswer}
+          sources={state.sources}
+        />
+      ) : null}
       {state.kind === 'error' ? (
         <ErrorCard
           error={state.error}
@@ -104,6 +112,48 @@ function LoadingCard() {
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-5/6" />
         <Skeleton className="h-4 w-4/6" />
+      </CardContent>
+    </Card>
+  )
+}
+
+function StreamingCard({
+  partialAnswer,
+  sources,
+}: {
+  partialAnswer: string
+  sources: AskSource[]
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <div className="space-y-3">
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Answer
+          </h3>
+          <p
+            className="whitespace-pre-wrap text-sm leading-relaxed"
+            data-testid="answer-streaming-text"
+          >
+            {partialAnswer}
+            <span
+              className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-primary align-text-bottom"
+              aria-hidden="true"
+            />
+          </p>
+        </div>
+        {sources.length > 0 ? (
+          <div className="pt-4 border-t border-dashed border-border space-y-2">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Sources · {sources.length}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {sources.map((s) => (
+                <SourceChip key={s.id} source={s} />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )
