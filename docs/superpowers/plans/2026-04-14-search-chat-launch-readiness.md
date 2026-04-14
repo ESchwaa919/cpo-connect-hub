@@ -356,11 +356,22 @@ interface FeedbackBody {
   rating?: unknown
 }
 
+/** Accept either a digit-only string or a non-negative integer. Anything
+ *  else (alpha, negative, NaN, Infinity, overly long) is a 400. We
+ *  validate BEFORE the SQL binding so a malformed body can't reach
+ *  Postgres and trigger a 500 via `invalid input syntax for type bigint`. */
+function parseQueryLogId(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  if (raw.length === 0 || raw.length > 20) return null
+  if (!/^\d+$/.test(raw)) return null
+  return raw
+}
+
 export async function feedbackHandler(req: Request, res: Response): Promise<void> {
   try {
     const email = req.user!.email.toLowerCase()
     const body = req.body as FeedbackBody
-    const queryLogId = typeof body.queryLogId === 'string' ? body.queryLogId : null
+    const queryLogId = parseQueryLogId(body.queryLogId)
     const rating =
       body.rating === 'thumbs_up' || body.rating === 'thumbs_down'
         ? body.rating
@@ -394,6 +405,8 @@ export async function feedbackHandler(req: Request, res: Response): Promise<void
   }
 }
 ```
+
+Add one more test case to `chat-routes.test.ts`: `feedbackHandler rejects a non-numeric queryLogId with 400` — post `{queryLogId: 'foo', rating: 'thumbs_up'}`, assert 400 + no SQL hit.
 
 Mount on `chatMemberRouter`:
 ```ts
