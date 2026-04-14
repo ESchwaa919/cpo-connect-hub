@@ -1,6 +1,7 @@
 import { runMigrations } from './server/db.ts'
 import { createApp } from './server/app.ts'
 import { syncMembersFromSheet } from './server/services/members.ts'
+import { warmLocalEmbedPipeline } from './server/lib/embed.ts'
 
 const app = createApp()
 const PORT = process.env.PORT || 3001
@@ -12,6 +13,13 @@ async function start() {
   } catch (err) {
     console.warn('Migration warning (DB may not be available in dev):', (err as Error).message)
   }
+
+  // Warm the local bge-small embedding pipeline in the background so
+  // the first user query doesn't pay the ~5-10 second cold-start cost.
+  // Fire-and-forget — failures log but don't block boot since the
+  // lazy load path inside embedQueryLocal will retry on the first
+  // call.
+  warmLocalEmbedPipeline()
 
   // Best-effort member identity sync. Fire-and-forget so Sheets API
   // outages do not block startup — the cache stays empty until an

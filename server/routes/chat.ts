@@ -9,6 +9,7 @@ import {
   embedQuery,
   EmbeddingUnavailableError,
 } from '../services/chatEmbedding.ts'
+import { embedQueryLocal } from '../lib/embed.ts'
 import {
   synthesizeAnswer,
   SynthesisUnavailableError,
@@ -52,6 +53,17 @@ const CHAT_SEARCH_MIN_SIMILARITY: number = (() => {
     return 0.4
   }
   return n
+})()
+
+/** Toggle the askHandler hot path between Gemini (default) and the
+ *  local bge-small embedding. Default false so PR 2 can deploy
+ *  without flipping the query path before the backfill completes —
+ *  rollback is "set this back to false in Render dashboard". Read
+ *  once at module load; flipping requires a redeploy (which Render
+ *  does automatically when the env var changes). */
+const USE_LOCAL_EMBEDDINGS: boolean = (() => {
+  const raw = process.env.USE_LOCAL_EMBEDDINGS
+  return raw === 'true' || raw === '1'
 })()
 
 /** WETA spec (failure-mode contract for /api/chat/ask and peers) uses
@@ -198,9 +210,26 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
   try {
     let embedding: number[]
     try {
-      embedding = await embedQuery(query)
+      embedding = USE_LOCAL_EMBEDDINGS
+        ? await embedQueryLocal(query)
+        : await embedQuery(query)
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) {
+        res.setHeader('Retry-After', '30')
+        res.status(503).json({
+          error: ChatErrorCode.EMBEDDING_UNAVAILABLE,
+          retryAfterSec: 30,
+        })
+        return
+      }
+      // Local embed can throw on edge cases (very long input, tokenizer
+      // OOM). Treat as embedding_unavailable so the user gets the same
+      // 503 + retry shape regardless of which path is live.
+      if (USE_LOCAL_EMBEDDINGS) {
+        console.error(
+          '[chat/ask] local embed failed:',
+          (err as Error).message,
+        )
         res.setHeader('Retry-After', '30')
         res.status(503).json({
           error: ChatErrorCode.EMBEDDING_UNAVAILABLE,
@@ -211,6 +240,10 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       throw err
     }
 
+    // Pick the column to query against based on the env flag. The
+    // column name is a compile-time constant (one of two literals),
+    // not user input — safe to interpolate into the SQL string.
+    const embedCol = USE_LOCAL_EMBEDDINGS ? 'embedding_local' : 'embedding'
     const result = await pool.query<AskSourceDBRow>(
       `SELECT
         cm.id::text AS id,
@@ -223,18 +256,18 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
         cm.sender_display_name,
         mem.display_name AS live_member_name,
         mp.chat_identification_opted_out AS opted_out,
-        1 - (cm.embedding <=> $1::vector) AS similarity
+        1 - (cm.${embedCol} <=> $1::vector) AS similarity
       FROM cpo_connect.chat_messages cm
       LEFT JOIN cpo_connect.members mem
         ON mem.phone = cm.sender_phone
       LEFT JOIN cpo_connect.member_profiles mp
         ON cm.author_email = mp.email
-      WHERE cm.embedding IS NOT NULL
-        AND (1 - (cm.embedding <=> $1::vector)) > $6
+      WHERE cm.${embedCol} IS NOT NULL
+        AND (1 - (cm.${embedCol} <=> $1::vector)) > $6
         AND ($2::text[] IS NULL OR cm.channel = ANY($2::text[]))
         AND ($3::timestamptz IS NULL OR cm.sent_at >= $3)
         AND ($4::timestamptz IS NULL OR cm.sent_at <= $4)
-      ORDER BY cm.embedding <=> $1::vector
+      ORDER BY cm.${embedCol} <=> $1::vector
       LIMIT $5`,
       [
         toVectorLiteral(embedding),
@@ -585,12 +618,43 @@ async function batchInsertMessages(
   let totalInserted = 0
   for (let i = 0; i < messages.length; i += MESSAGE_BATCH_SIZE) {
     const chunk = messages.slice(i, i + MESSAGE_BATCH_SIZE)
+    // Compute the local bge-small embedding for each message in the
+    // chunk before issuing the INSERT. Sequential to keep memory
+    // bounded on Render Standard — ~15 ms per row, so a 100-row
+    // chunk adds ~1.5 s to the ingest path. Acceptable for a non-
+    // user-facing cron-style job. We keep the existing 768-dim
+    // Gemini embedding column populated in parallel so the askHandler
+    // can run on either column based on the USE_LOCAL_EMBEDDINGS env
+    // flag during the rollout window.
+    const localEmbeddings: number[][] = []
+    for (const m of chunk) {
+      try {
+        localEmbeddings.push(await embedQueryLocal(m.messageText))
+      } catch (err) {
+        // If local embed fails for one row (very long message,
+        // tokenizer OOM, etc.), insert the row WITH the Gemini
+        // embedding but WITHOUT the local one. The backfill script
+        // will retry it later.
+        console.warn(
+          `[ingest] local embed failed for one row, will be NULL:`,
+          (err as Error).message,
+        )
+        localEmbeddings.push([])
+      }
+    }
+
     const values: string[] = []
     const params: unknown[] = []
-    for (const m of chunk) {
+    chunk.forEach((m, idx) => {
       const base = params.length
+      const localVec = localEmbeddings[idx]
+      // 11th column is embedding_local, nullable. When the local
+      // embed failed for this row, pass NULL; otherwise the vector
+      // literal cast to vector(384).
       values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::vector, $${base + 9}, $${base + 10})`,
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::vector, $${base + 9}, $${base + 10}, ${
+          localVec.length > 0 ? `$${base + 11}::vector` : 'NULL'
+        })`,
       )
       params.push(
         m.channel,
@@ -604,10 +668,13 @@ async function batchInsertMessages(
         m.senderPhone ?? null,
         m.senderDisplayName ?? null,
       )
-    }
+      if (localVec.length > 0) {
+        params.push(toVectorLiteral(localVec))
+      }
+    })
     const result = await pool.query(
       `INSERT INTO cpo_connect.chat_messages
-         (channel, author_name, author_email, message_text, sent_at, source_export, content_hash, embedding, sender_phone, sender_display_name)
+         (channel, author_name, author_email, message_text, sent_at, source_export, content_hash, embedding, sender_phone, sender_display_name, embedding_local)
        VALUES ${values.join(',')}
        ON CONFLICT (content_hash) DO NOTHING`,
       params,
