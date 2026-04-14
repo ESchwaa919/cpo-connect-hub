@@ -6,6 +6,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import WhatsTalked from '../pages/members/WhatsTalked'
+import { CHAT_SSE_EVENTS } from '../lib/sse-parser'
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -45,6 +46,10 @@ interface AskSuccessStub {
  *  contract: `sources` → `token` (one big chunk containing the answer) →
  *  `done`. Empty-state bodies (answer: null) collapse to a single
  *  `empty` event. */
+function sseFrame(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
 function sseSuccessResponse(stub: AskSuccessStub): Response {
   const encoder = new TextEncoder()
   const body = new ReadableStream<Uint8Array>({
@@ -52,29 +57,29 @@ function sseSuccessResponse(stub: AskSuccessStub): Response {
       if (stub.answer === null) {
         controller.enqueue(
           encoder.encode(
-            `event: empty\ndata: ${JSON.stringify({
+            sseFrame(CHAT_SSE_EVENTS.empty, {
               message: stub.message ?? '',
               queryMs: stub.queryMs ?? 0,
-            })}\n\n`,
+            }),
           ),
         )
       } else {
         controller.enqueue(
           encoder.encode(
-            `event: sources\ndata: ${JSON.stringify({ sources: stub.sources })}\n\n`,
+            sseFrame(CHAT_SSE_EVENTS.sources, { sources: stub.sources }),
           ),
         )
         controller.enqueue(
           encoder.encode(
-            `event: token\ndata: ${JSON.stringify({ text: stub.answer })}\n\n`,
+            sseFrame(CHAT_SSE_EVENTS.token, { text: stub.answer }),
           ),
         )
         controller.enqueue(
           encoder.encode(
-            `event: done\ndata: ${JSON.stringify({
+            sseFrame(CHAT_SSE_EVENTS.done, {
               model: stub.model ?? 'claude-sonnet-4-5',
               queryMs: stub.queryMs ?? 0,
-            })}\n\n`,
+            }),
           ),
         )
       }

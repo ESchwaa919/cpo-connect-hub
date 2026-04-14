@@ -83,6 +83,7 @@ import {
   ingestionRunsHandler,
 } from '../../server/routes/chat'
 import { makeRes, makeReq, bodyOf, sseEvents } from './_express-mocks'
+import { CHAT_SSE_EVENTS } from '../lib/sse-parser'
 
 interface SSEEvent {
   event: string
@@ -300,7 +301,7 @@ dbDescribe('askHandler', () => {
     // surfaces as an SSE event, not a JSON 503.
     expect(res.status).toHaveBeenCalledWith(200)
     const events = await typedEvents(res)
-    const errorEvent = events.find((e) => e.event === 'error')
+    const errorEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.error)
     expect(errorEvent).toBeDefined()
     expect(errorEvent?.data).toMatchObject({ code: 'synthesis_unavailable' })
   })
@@ -317,7 +318,7 @@ dbDescribe('askHandler', () => {
 
     expect(res.status).toHaveBeenCalledWith(200)
     const events = await typedEvents(res)
-    const emptyEvent = events.find((e) => e.event === 'empty')
+    const emptyEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.empty)
     expect(emptyEvent).toBeDefined()
     expect(emptyEvent?.data).toMatchObject({
       message: expect.stringMatching(/No relevant chat history/),
@@ -344,7 +345,7 @@ dbDescribe('askHandler', () => {
 
     const events = await typedEvents(res)
     // Sources event must be first — client renders chip row before tokens.
-    expect(events[0].event).toBe('sources')
+    expect(events[0].event).toBe(CHAT_SSE_EVENTS.sources)
     const sourcesData = events[0].data as {
       sources: Array<{ authorDisplayName: string; authorOptedOut: boolean }>
     }
@@ -352,14 +353,14 @@ dbDescribe('askHandler', () => {
     expect(sourcesData.sources[0].authorDisplayName).toMatch(/WETA Test Author/)
     expect(sourcesData.sources[0].authorOptedOut).toBe(false)
 
-    const tokenEvents = events.filter((e) => e.event === 'token')
+    const tokenEvents = events.filter((e) => e.event === CHAT_SSE_EVENTS.token)
     expect(tokenEvents.length).toBeGreaterThan(0)
     const concatenated = tokenEvents
       .map((e) => (e.data as { text: string }).text)
       .join('')
     expect(concatenated).toContain('People say')
 
-    const doneEvent = events.find((e) => e.event === 'done')
+    const doneEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.done)
     expect(doneEvent).toBeDefined()
     expect(doneEvent?.data).toMatchObject({ model: 'claude-sonnet-4-5' })
 
@@ -391,7 +392,7 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     const events = await typedEvents(res)
-    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.sources)
     expect(sourcesEvent).toBeDefined()
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string; authorOptedOut: boolean }>
@@ -444,7 +445,7 @@ dbDescribe('askHandler', () => {
 
     expect(res.status).toHaveBeenCalledWith(200)
     const events = await typedEvents(res)
-    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.sources)
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
     }
@@ -486,7 +487,7 @@ dbDescribe('askHandler', () => {
     await askHandler(req, res)
 
     const events = await typedEvents(res)
-    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.sources)
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ authorDisplayName: string }>
     }
@@ -532,7 +533,7 @@ dbDescribe('askHandler', () => {
 
     expect(res.status).toHaveBeenCalledWith(200)
     const events = await typedEvents(res)
-    const sourcesEvent = events.find((e) => e.event === 'sources')
+    const sourcesEvent = events.find((e) => e.event === CHAT_SSE_EVENTS.sources)
     const sourcesData = sourcesEvent!.data as {
       sources: Array<{ channel: string; authorDisplayName: string }>
     }
@@ -1514,7 +1515,7 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
 
     const beforeEventsList = await typedEvents(askBeforeRes)
     const beforeSourcesEvent = beforeEventsList.find(
-      (e) => e.event === 'sources',
+      (e) => e.event === CHAT_SSE_EVENTS.sources,
     )
     const beforeSources = (
       beforeSourcesEvent!.data as {
@@ -1561,7 +1562,7 @@ dbDescribe('end-to-end privacy: ingest → ask → opt-out', () => {
 
     const afterEventsList = await typedEvents(askAfterRes)
     const afterSourcesEvent = afterEventsList.find(
-      (e) => e.event === 'sources',
+      (e) => e.event === CHAT_SSE_EVENTS.sources,
     )
     const afterSources = (
       afterSourcesEvent!.data as {
