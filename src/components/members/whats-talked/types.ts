@@ -18,6 +18,11 @@ export interface AskSuccessResponse {
   queryMs: number
   model: string | null
   message?: string
+  /** Server-assigned id for the chat_query_log row, used by the
+   *  feedback (thumbs) UI to post a rating against the specific
+   *  query. Null if the log insert failed server-side — in that
+   *  case the feedback buttons render disabled. */
+  queryLogId?: string | null
 }
 
 export type ChatErrorCode =

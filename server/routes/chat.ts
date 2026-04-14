@@ -287,14 +287,178 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       throw err
     }
 
+    const queryMs = Date.now() - startedAt
+
+    // Persist the query + answer so we can iterate on prompt/cutoff/
+    // embedding quality post-launch. Failures here MUST NOT break the
+    // user response — catch + return null → frontend renders without
+    // the feedback row.
+    const queryLogId = await pool
+      .query<{ id: string }>(
+        `INSERT INTO cpo_connect.chat_query_log
+           (user_id, query_text, answer_text, source_count, query_ms, model, channels)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id::text`,
+        [email, query, answer, sources.length, queryMs, model, channels],
+      )
+      .then((r) => r.rows[0]?.id ?? null)
+      .catch((err) => {
+        console.error(
+          '[chat/ask] query log insert failed:',
+          (err as Error).message,
+        )
+        return null
+      })
+
     res.status(200).json({
       answer,
       sources,
-      queryMs: Date.now() - startedAt,
+      queryMs,
       model,
+      queryLogId,
     })
   } catch (err) {
     sendServerError(res, 'POST /api/chat/ask', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/chat/feedback — thumbs up/down on a query log row
+// ---------------------------------------------------------------------------
+
+interface FeedbackBody {
+  queryLogId?: unknown
+  rating?: unknown
+}
+
+/** Accept only a digit-only string of reasonable length. Validating
+ *  BEFORE the SQL binding is critical — a malformed value like "foo"
+ *  would otherwise reach Postgres, trigger `invalid input syntax for
+ *  type bigint`, and bubble out as a 500 instead of the correct 400. */
+function parseQueryLogId(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  if (raw.length === 0 || raw.length > 20) return null
+  if (!/^\d+$/.test(raw)) return null
+  return raw
+}
+
+export async function feedbackHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const email = req.user!.email.toLowerCase()
+    const body = (req.body ?? {}) as FeedbackBody
+    const queryLogId = parseQueryLogId(body.queryLogId)
+    const rating =
+      body.rating === 'thumbs_up' || body.rating === 'thumbs_down'
+        ? body.rating
+        : null
+    if (!queryLogId || !rating) {
+      res.status(400).json({ error: ChatErrorCode.BAD_QUERY })
+      return
+    }
+
+    // Ownership check + insert in one statement. The INSERT ... SELECT
+    // only produces a row when user_id matches the caller, so a
+    // rowCount of 0 covers both "no such log" and "not yours" — we
+    // return the same 404 in both cases to avoid leaking existence.
+    const result = await pool.query(
+      `INSERT INTO cpo_connect.chat_query_feedback (query_log_id, rating)
+       SELECT id, $2
+       FROM cpo_connect.chat_query_log
+       WHERE id = $1::bigint AND user_id = $3`,
+      [queryLogId, rating, email],
+    )
+    if ((result.rowCount ?? 0) === 0) {
+      res.status(404).json({ error: 'query_log_not_found' })
+      return
+    }
+    res.status(204).end()
+  } catch (err) {
+    sendServerError(res, 'POST /api/chat/feedback', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/chat/query-log.csv — admin-only CSV export
+// ---------------------------------------------------------------------------
+
+interface QueryLogCsvRow {
+  id: string
+  user_id_display: string
+  query_text: string
+  answer_text: string | null
+  source_count: number
+  query_ms: number | null
+  model: string | null
+  created_at: string
+  rating: string | null
+}
+
+function csvEscape(s: string): string {
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`
+  }
+  return s
+}
+
+export async function queryLogCsvHandler(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    // LEFT JOIN member_profiles → we can redact the user_id column
+    // for opted-out askers per Cluster F. COALESCE(...false) makes
+    // opt-out a hard default on join miss (safer than leaking on a
+    // row-missing edge case).
+    const result = await pool.query<QueryLogCsvRow>(
+      `SELECT
+         l.id::text AS id,
+         CASE
+           WHEN COALESCE(mp.chat_identification_opted_out, false) = true
+             THEN 'A member'
+           ELSE l.user_id
+         END AS user_id_display,
+         l.query_text,
+         l.answer_text,
+         l.source_count,
+         l.query_ms,
+         l.model,
+         l.created_at::text AS created_at,
+         f.rating
+       FROM cpo_connect.chat_query_log l
+       LEFT JOIN cpo_connect.member_profiles mp ON mp.email = l.user_id
+       LEFT JOIN cpo_connect.chat_query_feedback f ON f.query_log_id = l.id
+       ORDER BY l.created_at DESC
+       LIMIT 5000`,
+    )
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="chat-query-log.csv"',
+    )
+    res.write(
+      'id,user_id,query_text,answer_text,source_count,query_ms,model,created_at,rating\n',
+    )
+    for (const row of result.rows) {
+      res.write(
+        [
+          row.id,
+          csvEscape(row.user_id_display),
+          csvEscape(row.query_text),
+          csvEscape(row.answer_text ?? ''),
+          row.source_count,
+          row.query_ms ?? '',
+          csvEscape(row.model ?? ''),
+          row.created_at,
+          row.rating ?? '',
+        ].join(',') + '\n',
+      )
+    }
+    res.end()
+  } catch (err) {
+    sendServerError(res, 'GET /api/admin/chat/query-log.csv', err)
   }
 }
 
@@ -709,6 +873,7 @@ export async function syncMembersHandler(
 export const chatMemberRouter = Router()
 chatMemberRouter.post('/ask', requireAuth, chatAskRateLimit, askHandler)
 chatMemberRouter.get('/prompt-tiles', requireAuth, promptTilesHandler)
+chatMemberRouter.post('/feedback', requireAuth, feedbackHandler)
 
 // Admin routes mounted under /api/admin/chat. Split from the member router
 // so POST /ingest can mount its own 50MB body parser AFTER requireIngestAuth
@@ -735,4 +900,10 @@ chatAdminRouter.post(
   requireAuth,
   requireAdmin,
   syncMembersHandler,
+)
+chatAdminRouter.get(
+  '/query-log.csv',
+  requireAuth,
+  requireAdmin,
+  queryLogCsvHandler,
 )
