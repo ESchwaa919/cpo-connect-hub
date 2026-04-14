@@ -247,12 +247,34 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
     )
 
     if (result.rows.length === 0) {
+      const queryMs = Date.now() - startedAt
+      // Persist zero-result queries too — they're the most valuable
+      // signal for tuning the cutoff + ingest priorities. Same
+      // fire-and-forget pattern as the success path.
+      const queryLogId = await pool
+        .query<{ id: string }>(
+          `INSERT INTO cpo_connect.chat_query_log
+             (user_id, query_text, answer_text, source_count, query_ms, model, channels)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id::text`,
+          [email, query, null, 0, queryMs, null, channels],
+        )
+        .then((r) => r.rows[0]?.id ?? null)
+        .catch((err) => {
+          console.error(
+            '[chat/ask] empty-state query log insert failed:',
+            (err as Error).message,
+          )
+          return null
+        })
+
       res.status(200).json({
         answer: null,
         sources: [],
         message: 'No relevant chat history found for this question',
-        queryMs: Date.now() - startedAt,
+        queryMs,
         model: null,
+        queryLogId,
       })
       return
     }
