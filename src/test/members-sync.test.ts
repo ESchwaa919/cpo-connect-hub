@@ -96,7 +96,11 @@ describe('syncMembersFromSheet', () => {
     expect(result.phoneFailed).toBe(1)
   })
 
-  it('skips rows with blank Full Name', async () => {
+  it('substitutes "Unknown member" placeholder for blank Full Name (still upserts)', async () => {
+    // Launch-readiness spec finding B1: blank names used to cause a
+    // skip, which meant the member was missing from the directory
+    // cache entirely. Now we keep the row with a safe placeholder so
+    // phone-based resolveAuthor lookups still find them.
     mockFetchSheet1RawRows.mockResolvedValueOnce([
       {
         'Full Name': '',
@@ -105,11 +109,55 @@ describe('syncMembersFromSheet', () => {
         Status: 'Joined',
       },
     ])
-    mockQuery.mockResolvedValue({ rowCount: 0 })
+    mockQuery.mockResolvedValue({ rowCount: 1 })
 
     const result = await syncMembersFromSheet()
-    expect(result.upserted).toBe(0)
+    expect(result.upserted).toBe(1)
     expect(result.nameBlank).toBe(1)
+
+    const upsertCalls = mockQuery.mock.calls.filter(
+      (c) =>
+        typeof c[0] === 'string' &&
+        c[0].includes('INSERT INTO cpo_connect.members'),
+    )
+    expect(upsertCalls).toHaveLength(1)
+    const [, names] = upsertCalls[0][1] as [
+      string[],
+      string[],
+      Array<string | null>,
+    ]
+    expect(names).toEqual(['Unknown member'])
+  })
+
+  it('substitutes "Unknown member" when the Full Name column looks like a raw phone (historical sheet bug)', async () => {
+    // Historical: some sheet rows had the phone string pasted into
+    // the Full Name column. The naive pre-fix wrote that value as
+    // display_name and it leaked into source chips. Now we detect
+    // looksLikeRawPhone() on the name too and substitute.
+    mockFetchSheet1RawRows.mockResolvedValueOnce([
+      {
+        'Full Name': '+44 7911 123456',
+        Email: 'y@example.com',
+        'Phone number': '07911 123456',
+        Status: 'Joined',
+      },
+    ])
+    mockQuery.mockResolvedValue({ rowCount: 1 })
+
+    const result = await syncMembersFromSheet()
+    expect(result.upserted).toBe(1)
+
+    const upsertCalls = mockQuery.mock.calls.filter(
+      (c) =>
+        typeof c[0] === 'string' &&
+        c[0].includes('INSERT INTO cpo_connect.members'),
+    )
+    const [, names] = upsertCalls[0][1] as [
+      string[],
+      string[],
+      Array<string | null>,
+    ]
+    expect(names).toEqual(['Unknown member'])
   })
 
   it('dedupes by normalized phone before bulk upsert (regression: ON CONFLICT DO UPDATE cannot affect row twice)', async () => {

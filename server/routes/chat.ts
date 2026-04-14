@@ -74,8 +74,20 @@ export interface AskSourceDBRow {
 /** Display-time resolution chain for a chat message's author. Matches
  *  the order documented in the identity-resolution spec: live members
  *  row → ingest-time frozen snapshot → sanitized phone → sanitized
- *  legacy author_name. Never returns a raw phone number. */
+ *  legacy author_name. Never returns a raw phone number — a final
+ *  belt-and-braces guard masks any branch output that still looks like
+ *  one (e.g. a historical members.display_name row that was populated
+ *  with the phone string before syncMembersFromSheet learned to write
+ *  a placeholder). */
 export function pickAuthorDisplay(row: AskSourceDBRow): string {
+  const resolved = resolveAuthorName(row)
+  if (looksLikeRawPhone(resolved)) {
+    return sanitizeRawAuthorString(resolved)
+  }
+  return resolved
+}
+
+function resolveAuthorName(row: AskSourceDBRow): string {
   if (row.live_member_name) return row.live_member_name
   if (row.sender_display_name && !looksLikeRawPhone(row.sender_display_name)) {
     return row.sender_display_name
