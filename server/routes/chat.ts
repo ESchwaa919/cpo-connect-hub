@@ -10,10 +10,14 @@ import {
   EmbeddingUnavailableError,
 } from '../services/chatEmbedding.ts'
 import {
-  synthesizeAnswer,
+  synthesizeAnswerStream,
   SynthesisUnavailableError,
   type SynthesisSource,
 } from '../services/chatSynthesis.ts'
+import {
+  CHAT_SSE_EVENTS,
+  type ChatSSEEventName,
+} from '../../src/lib/sse-parser.ts'
 import {
   matchAuthor,
   type ProfileMatchCandidate,
@@ -35,6 +39,23 @@ export const ChatErrorCode = {
   SYNTHESIS_UNAVAILABLE: 'synthesis_unavailable',
 } as const
 
+/** Cosine-similarity floor applied to pgvector search results. Rows
+ *  below this are dropped before they reach Claude, so low-quality
+ *  matches don't waste input context or bias the answer. Read once at
+ *  module load; rotating requires a process restart. */
+const CHAT_SEARCH_MIN_SIMILARITY: number = (() => {
+  const raw = process.env.CHAT_SEARCH_MIN_SIMILARITY
+  if (raw === undefined || raw === '') return 0.65
+  const n = Number.parseFloat(raw)
+  if (!Number.isFinite(n) || n < 0 || n > 1) {
+    console.warn(
+      `[chat/ask] invalid CHAT_SEARCH_MIN_SIMILARITY=${raw}, falling back to 0.65`,
+    )
+    return 0.65
+  }
+  return n
+})()
+
 /** WETA spec (failure-mode contract for /api/chat/ask and peers) uses
  *  `{ error: 'internal' }` as the 500 response shape — frontend discriminates
  *  on the `error` field value. */
@@ -45,6 +66,21 @@ function sendServerError(res: Response, route: string, err: unknown): void {
 
 function toVectorLiteral(v: number[]): string {
   return `[${v.join(',')}]`
+}
+
+/** Emit a single Server-Sent Event frame on the response. Writes the
+ *  whole `event:\ndata:\n\n` frame in one call to halve the socket
+ *  write count on the token hot path (hundreds of events per response).
+ *  Flushes immediately via `res.flush()` when the underlying socket
+ *  supports it (Render's proxy respects this; nginx does too). */
+function writeSSE(
+  res: Response,
+  event: ChatSSEEventName,
+  data: unknown,
+): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const maybeFlushable = res as Response & { flush?: () => void }
+  maybeFlushable.flush?.()
 }
 
 function isValidDateString(s: unknown): s is string {
@@ -199,22 +235,40 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       LEFT JOIN cpo_connect.member_profiles mp
         ON cm.author_email = mp.email
       WHERE cm.embedding IS NOT NULL
+        AND (1 - (cm.embedding <=> $1::vector)) > $6
         AND ($2::text[] IS NULL OR cm.channel = ANY($2::text[]))
         AND ($3::timestamptz IS NULL OR cm.sent_at >= $3)
         AND ($4::timestamptz IS NULL OR cm.sent_at <= $4)
       ORDER BY cm.embedding <=> $1::vector
       LIMIT $5`,
-      [toVectorLiteral(embedding), channels, dateFrom, dateTo, limit],
+      [
+        toVectorLiteral(embedding),
+        channels,
+        dateFrom,
+        dateTo,
+        limit,
+        CHAT_SEARCH_MIN_SIMILARITY,
+      ],
     )
 
+    // Open the SSE stream now that the DB query has succeeded. Error
+    // paths BEFORE this point (bad_query, embedding_unavailable) stay
+    // as plain JSON responses — the client discriminates on
+    // Content-Type.
+    res.status(200)
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    // Belt-and-braces against buffering proxies (nginx, Render's edge).
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders?.()
+
     if (result.rows.length === 0) {
-      res.status(200).json({
-        answer: null,
-        sources: [],
+      writeSSE(res, CHAT_SSE_EVENTS.empty, {
         message: 'No relevant chat history found for this question',
         queryMs: Date.now() - startedAt,
-        model: null,
       })
+      res.end()
       return
     }
 
@@ -234,27 +288,51 @@ export async function askHandler(req: Request, res: Response): Promise<void> {
       }
     })
 
-    let answer: string
-    let model: string
+    // Flush sources as soon as the DB query returns — client can
+    // render the source chip row before any Claude tokens arrive.
+    writeSSE(res, CHAT_SSE_EVENTS.sources, { sources })
+
     try {
-      const out = await synthesizeAnswer({ query, sources })
-      answer = out.answer
-      model = out.model
+      let model: string | null = null
+      for await (const event of synthesizeAnswerStream({ query, sources })) {
+        if (event.kind === 'token') {
+          writeSSE(res, CHAT_SSE_EVENTS.token, { text: event.text })
+        } else if (event.kind === 'done') {
+          model = event.model
+        }
+      }
+      writeSSE(res, CHAT_SSE_EVENTS.done, {
+        model: model ?? 'unknown',
+        queryMs: Date.now() - startedAt,
+      })
     } catch (err) {
       if (err instanceof SynthesisUnavailableError) {
-        res.status(503).json({ error: ChatErrorCode.SYNTHESIS_UNAVAILABLE })
-        return
+        writeSSE(res, CHAT_SSE_EVENTS.error, {
+          code: ChatErrorCode.SYNTHESIS_UNAVAILABLE,
+        })
+      } else {
+        console.error(
+          'POST /api/chat/ask synthesis error:',
+          (err as Error).message,
+        )
+        writeSSE(res, CHAT_SSE_EVENTS.error, { code: 'internal' })
       }
-      throw err
     }
-
-    res.status(200).json({
-      answer,
-      sources,
-      queryMs: Date.now() - startedAt,
-      model,
-    })
+    res.end()
   } catch (err) {
+    // Pre-stream failure path — use the JSON 500 shape the old
+    // handler returned. If the SSE headers have already been flushed
+    // we can't change them, so fall back to writing an SSE error
+    // event + ending the stream.
+    if (res.headersSent) {
+      try {
+        writeSSE(res, CHAT_SSE_EVENTS.error, { code: 'internal' })
+      } catch {
+        /* socket already closed */
+      }
+      res.end()
+      return
+    }
     sendServerError(res, 'POST /api/chat/ask', err)
   }
 }
