@@ -32,7 +32,6 @@ import pool from '../../server/db'
 const mocks = vi.hoisted(() => ({
   embedQueryMock: vi.fn(),
   synthesizeAnswerMock: vi.fn(),
-  synthesizeAnswerStreamMock: vi.fn(),
 }))
 
 vi.mock('../../server/services/chatEmbedding', () => ({
@@ -44,21 +43,10 @@ vi.mock('../../server/services/chatEmbedding', () => ({
 
 vi.mock('../../server/services/chatSynthesis', () => ({
   synthesizeAnswer: mocks.synthesizeAnswerMock,
-  synthesizeAnswerStream: mocks.synthesizeAnswerStreamMock,
   SynthesisUnavailableError: class extends Error {
     readonly code = 'synthesis_unavailable' as const
   },
 }))
-
-/** Build an async generator mock for synthesizeAnswerStream that
- *  yields the given text as a single token event followed by a done
- *  event — matches the shape the askHandler consumes. */
-function streamingMock(text: string, model = 'claude-sonnet-4-5') {
-  return async function* () {
-    yield { kind: 'token' as const, text }
-    yield { kind: 'done' as const, model }
-  }
-}
 
 import { createApp } from '../../server/app'
 import { resetChatAskRateLimits } from '../../server/services/chat-rate-limit'
@@ -166,7 +154,6 @@ dbDescribe('chat router integration (live Express app)', () => {
   beforeEach(() => {
     mocks.embedQueryMock.mockReset()
     mocks.synthesizeAnswerMock.mockReset()
-    mocks.synthesizeAnswerStreamMock.mockReset()
     // Fresh quota between tests so the 10/min burn from one test doesn't
     // bleed into the next.
     resetChatAskRateLimits(memberEmail)
@@ -194,9 +181,10 @@ dbDescribe('chat router integration (live Express app)', () => {
 
   it('POST /api/chat/ask enforces the 10/min rate limit on authenticated sessions', async () => {
     mocks.embedQueryMock.mockResolvedValue(fixedVector(0.1))
-    // Each allowed ask call consumes one stream — return a fresh
-    // generator each time so mockReturnValueOnce doesn't starve.
-    mocks.synthesizeAnswerStreamMock.mockImplementation(streamingMock('ok'))
+    mocks.synthesizeAnswerMock.mockResolvedValue({
+      answer: 'ok',
+      model: 'claude-sonnet-4-5',
+    })
 
     // 10 allowed
     for (let i = 0; i < 10; i++) {
@@ -209,10 +197,6 @@ dbDescribe('chat router integration (live Express app)', () => {
         body: JSON.stringify({ query: `q${i}` }),
       })
       expect(res.status).toBe(200)
-      // Drain the SSE body so the handler's res.end() resolves before
-      // we fire the next request in the loop. Otherwise the stream
-      // stays half-open.
-      await res.text()
     }
 
     // 11th blocked

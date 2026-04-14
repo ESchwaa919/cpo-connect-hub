@@ -11,9 +11,7 @@ import { EmptyState } from '@/components/members/whats-talked/EmptyState'
 import { PrivacyNotice } from '@/components/members/whats-talked/PrivacyNotice'
 import {
   ChatAskError,
-  type AskSource,
   type AskSuccessResponse,
-  type ChatErrorCode,
   type ChatErrorResponse,
   type PromptTile as PromptTileData,
   type PromptTilesResponse,
@@ -23,7 +21,6 @@ import {
   serializeChannelScopeParam,
   type ChannelScopeValue,
 } from '@/lib/channel-scope-params'
-import { readSSE, CHAT_SSE_EVENTS } from '@/lib/sse-parser'
 import { useMemberProfile } from '@/hooks/useMemberProfile'
 
 const ASK_STALE_MS = 5 * 60 * 1000
@@ -48,26 +45,15 @@ async function fetchPromptTiles(
   return (await res.json()) as PromptTilesResponse
 }
 
-interface StreamCallbacks {
-  onSources: (sources: AskSource[]) => void
-  onToken: (chunk: string) => void
-}
-
-/** POST to /api/chat/ask and consume the SSE stream. On the happy path
- *  the server flushes a `sources` event (forwarded via `onSources`),
- *  then a series of `token` events (each forwarded via `onToken`),
- *  then a `done` event carrying the model name and total queryMs.
- *  Pre-stream failures (bad_query, embedding_unavailable) arrive as a
- *  JSON error body with the same shape the old non-streaming handler
- *  used — clients discriminate on Content-Type. */
-async function streamAsk(
+async function postAsk(
   query: string,
   scope: ChannelScopeValue,
   signal: AbortSignal,
-  cbs: StreamCallbacks,
 ): Promise<AskSuccessResponse> {
   const body: Record<string, unknown> = { query }
   if (scope.mode === 'subset') {
+    // Send either `channels: string[]` (multi) or a single `channel` for
+    // single-select (matches the legacy field the server still accepts).
     if (scope.ids.length === 1) {
       body.channel = scope.ids[0]
     } else {
@@ -89,104 +75,26 @@ async function streamAsk(
     throw new ChatAskError('internal', 0)
   }
 
-  if (!res.ok) {
-    let payload: ChatErrorResponse | null = null
-    try {
-      payload = (await res.json()) as ChatErrorResponse
-    } catch {
-      /* non-JSON error body */
-    }
-    const retryAfterSec =
-      payload?.retryAfterSec ??
-      (res.headers.get('retry-after')
-        ? Number(res.headers.get('retry-after'))
-        : undefined)
-    throw new ChatAskError(
-      payload?.error ?? 'internal',
-      res.status,
-      Number.isFinite(retryAfterSec) ? (retryAfterSec as number) : undefined,
-    )
+  if (res.ok) {
+    return (await res.json()) as AskSuccessResponse
   }
 
-  if (!res.body) {
-    throw new ChatAskError('internal', res.status)
-  }
-
-  let accumulated = ''
-  let sources: AskSource[] = []
-  let done: { model: string; queryMs: number } | null = null
-  let emptyMessage: string | null = null
-  let emptyQueryMs = 0
-
-  const reader = res.body.getReader()
+  let payload: ChatErrorResponse | null = null
   try {
-    for await (const event of readSSE(reader)) {
-      let parsed: Record<string, unknown>
-      try {
-        parsed = JSON.parse(event.data) as Record<string, unknown>
-      } catch {
-        continue
-      }
-
-      if (event.event === CHAT_SSE_EVENTS.sources) {
-        sources = (parsed.sources as AskSource[]) ?? []
-        cbs.onSources(sources)
-      } else if (event.event === CHAT_SSE_EVENTS.token) {
-        const text = typeof parsed.text === 'string' ? parsed.text : ''
-        if (text.length === 0) continue
-        accumulated += text
-        cbs.onToken(text)
-      } else if (event.event === CHAT_SSE_EVENTS.done) {
-        done = {
-          model:
-            typeof parsed.model === 'string' ? parsed.model : 'unknown',
-          queryMs:
-            typeof parsed.queryMs === 'number' ? parsed.queryMs : 0,
-        }
-      } else if (event.event === CHAT_SSE_EVENTS.empty) {
-        emptyMessage =
-          typeof parsed.message === 'string' ? parsed.message : null
-        emptyQueryMs =
-          typeof parsed.queryMs === 'number' ? parsed.queryMs : 0
-      } else if (event.event === CHAT_SSE_EVENTS.error) {
-        const code =
-          typeof parsed.code === 'string'
-            ? (parsed.code as ChatErrorCode)
-            : 'internal'
-        const retryAfterSec =
-          typeof parsed.retryAfterSec === 'number'
-            ? parsed.retryAfterSec
-            : undefined
-        throw new ChatAskError(code, res.status, retryAfterSec, {
-          answer: accumulated,
-          sources,
-        })
-      }
-    }
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw err
-    if (err instanceof ChatAskError) throw err
-    throw new ChatAskError('internal', res.status)
+    payload = (await res.json()) as ChatErrorResponse
+  } catch {
+    /* non-JSON error body — fall through to 'internal' default below */
   }
-
-  if (emptyMessage !== null) {
-    return {
-      answer: null,
-      sources: [],
-      queryMs: emptyQueryMs,
-      model: null,
-      message: emptyMessage,
-    }
-  }
-  if (!done) {
-    throw new ChatAskError('internal', res.status)
-  }
-  return {
-    answer: accumulated,
-    sources,
-    queryMs: done.queryMs,
-    model: done.model,
-  }
+  const retryAfterSec =
+    payload?.retryAfterSec ??
+    (res.headers.get('retry-after')
+      ? Number(res.headers.get('retry-after'))
+      : undefined)
+  throw new ChatAskError(
+    payload?.error ?? 'internal',
+    res.status,
+    Number.isFinite(retryAfterSec) ? (retryAfterSec as number) : undefined,
+  )
 }
 
 export default function WhatsTalked() {
@@ -221,25 +129,9 @@ export default function WhatsTalked() {
     staleTime: TILES_STALE_MS,
   })
 
-  // During streaming, React Query's data isn't settled until the `done`
-  // event arrives. The UI reads the partial answer + sources from these
-  // side-channel states so the AnswerBlock can render tokens as they
-  // land. Cleared at the start of every new request.
-  const [partialAnswer, setPartialAnswer] = useState('')
-  const [streamingSources, setStreamingSources] = useState<
-    AskSource[] | null
-  >(null)
-
   const askQuery = useQuery<AskSuccessResponse, ChatAskError>({
     queryKey: ['chat-ask', activeQuery, scopeKey],
-    queryFn: async ({ signal }) => {
-      setPartialAnswer('')
-      setStreamingSources(null)
-      return streamAsk(activeQuery, scope, signal, {
-        onSources: (s) => setStreamingSources(s),
-        onToken: (chunk) => setPartialAnswer((prev) => prev + chunk),
-      })
-    },
+    queryFn: ({ signal }) => postAsk(activeQuery, scope, signal),
     enabled: activeQuery.length > 0,
     staleTime: ASK_STALE_MS,
     retry: false,
@@ -271,27 +163,17 @@ export default function WhatsTalked() {
   }, [rateLimitWaitSec])
 
   const isLoading = askQuery.isFetching
-  // Once the backend has flushed the `sources` event the UI has enough
-  // to render the partial answer + chip row together. Before that we
-  // stay in the generic loading skeleton.
-  const isStreaming = isLoading && streamingSources !== null
 
   const answerState: AnswerBlockState =
     activeQuery.length === 0
       ? { kind: 'idle' }
-      : askQuery.isError
-        ? { kind: 'error', error: askQuery.error }
-        : askQuery.isSuccess
-          ? { kind: 'success', response: askQuery.data }
-          : isStreaming
-            ? {
-                kind: 'streaming',
-                partialAnswer,
-                sources: streamingSources ?? [],
-              }
-            : isLoading
-              ? { kind: 'loading' }
-              : { kind: 'idle' }
+      : isLoading
+        ? { kind: 'loading' }
+        : askQuery.isError
+          ? { kind: 'error', error: askQuery.error }
+          : askQuery.isSuccess
+            ? { kind: 'success', response: askQuery.data }
+            : { kind: 'idle' }
 
   function updateSearchParams(
     mutate: (next: URLSearchParams) => void,
