@@ -36,8 +36,15 @@ const SYSTEM_PROMPT = `You are a community knowledge synthesizer for CPO Connect
 Rules:
 - Answer in 2-4 sentences. Be concise.
 - Cite sources inline using [N] markers that map to the numbered sources provided.
-- If the sources don't contain enough info, say so plainly. Don't fabricate.
+- The sources are WhatsApp chat excerpts, not reference material — they rarely define concepts explicitly. When sources mention an entity or topic without defining it, you may briefly infer context from how the community discusses it, clearly hedged with phrases like "appears to be" or "based on how members use it". Never invent specific facts, names, or claims that aren't in the sources.
 - Names marked "A member" have opted out of attribution — refer to them that way and don't guess who they are.`
+
+// Low temperature for near-deterministic output. Anthropic defaults to
+// 1.0 which produces materially different answers for the same input on
+// back-to-back calls — unacceptable for a knowledge-retrieval product.
+// 0.2 gives "deterministic with a touch of warmth" — a common RAG
+// setting that keeps responses reproducible without sounding mechanical.
+const SYNTHESIS_TEMPERATURE = 0.2
 
 // Rotating ANTHROPIC_API_KEY requires a process restart — the client is
 // cached for the lifetime of the process and does not re-read env on
@@ -86,6 +93,7 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
       {
         model: MODEL,
         max_tokens: 600,
+        temperature: SYNTHESIS_TEMPERATURE,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
       },
