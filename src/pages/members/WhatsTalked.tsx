@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
+import { Badge } from '@/components/ui/badge'
 import { HeroAskCard } from '@/components/members/whats-talked/HeroAskCard'
 import { PromptChipRow } from '@/components/members/whats-talked/PromptChipRow'
 import {
@@ -231,7 +232,18 @@ export default function WhatsTalked() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <h1 className="text-3xl font-bold font-display">Search Chat</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold font-display">
+            What are our members talking about
+          </h1>
+          <Badge
+            variant="secondary"
+            className="uppercase tracking-wide"
+            aria-label="Beta feature — quality improving"
+          >
+            Beta
+          </Badge>
+        </div>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Ask the community anything. Semantic search across the group
           WhatsApp conversations with citations.

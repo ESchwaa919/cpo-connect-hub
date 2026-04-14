@@ -86,6 +86,27 @@ describe('pickAuthorDisplay — resolution chain', () => {
     ).toBe('Sarah Jenkins')
   })
 
+  it('masks a live_member_name that is itself a raw phone (regression: historical members row)', () => {
+    // Simulates the bug from the launch-readiness spec finding B1:
+    // a members.display_name row that was populated with the phone
+    // string itself. The final guard in pickAuthorDisplay must catch
+    // this even though resolveAuthorName's first branch trusts
+    // live_member_name.
+    const out = pickAuthorDisplay(
+      row({ live_member_name: '+44 7911 123456' }),
+    )
+    expect(out).not.toContain('7911')
+    expect(out).not.toContain('123456')
+    expect(out).toMatch(/^\+44 ·+ ·+456$/)
+  })
+
+  it('masks a live_member_name that is a digit-only phone without + prefix', () => {
+    const out = pickAuthorDisplay(
+      row({ live_member_name: '07911123456' }),
+    )
+    expect(out).not.toMatch(/\d{6,}/)
+  })
+
   it('never surfaces a raw phone across ALL combinations of null/phone fields', () => {
     // Exhaustive sweep: every resolvable combination must either yield
     // a human name or a sanitized (masked) phone — NEVER raw digits.

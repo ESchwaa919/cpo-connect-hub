@@ -1,5 +1,5 @@
 import pool from '../db.ts'
-import { normalizePhone } from '../lib/phone.ts'
+import { normalizePhone, looksLikeRawPhone } from '../lib/phone.ts'
 import { fetchSheet1RawRows } from './sheets.ts'
 
 export interface MemberRow {
@@ -57,9 +57,23 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
     }
 
     const name = (row['Full Name'] ?? '').trim()
+    // Blank name OR name that looks like a raw phone → substitute
+    // "Unknown member" so the directory entry still exists (phone-based
+    // lookups find it) without leaking the raw phone into display_name.
+    // This is Finding B1 from the launch-readiness spec: historical
+    // sheet rows that had the phone in the Full Name column would
+    // otherwise land with display_name = the phone.
+    let safeName: string
     if (!name) {
       result.nameBlank += 1
-      continue
+      safeName = 'Unknown member'
+    } else if (looksLikeRawPhone(name)) {
+      console.warn(
+        `[members-sync] sheet row "${name}" looks like a raw phone — substituting "Unknown member"`,
+      )
+      safeName = 'Unknown member'
+    } else {
+      safeName = name
     }
 
     const rawPhone = row['Phone number'] ?? ''
@@ -67,13 +81,13 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
     if (!phone) {
       result.phoneFailed += 1
       console.warn(
-        `[members-sync] phone normalization failed for ${name} (raw="${rawPhone}")`,
+        `[members-sync] phone normalization failed for ${safeName} (raw="${rawPhone}")`,
       )
       continue
     }
 
     const email = (row['Email'] ?? '').trim() || null
-    dedupedByPhone.set(phone, { phone, displayName: name, email })
+    dedupedByPhone.set(phone, { phone, displayName: safeName, email })
   }
   const valid = Array.from(dedupedByPhone.values())
 

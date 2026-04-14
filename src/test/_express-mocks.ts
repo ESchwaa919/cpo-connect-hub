@@ -15,6 +15,10 @@ export function makeRes(): Response {
     }),
     json: vi.fn().mockReturnThis(),
     setHeader: vi.fn(),
+    // 204 responses call res.end() directly without going through
+    // res.json(). Expose it as a spy so handlers that use the
+    // no-body success pattern can be asserted against.
+    end: vi.fn().mockReturnThis(),
   } as unknown as Response
   return res
 }

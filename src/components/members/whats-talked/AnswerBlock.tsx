@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SourceChip } from './SourceChip'
+import { FeedbackRow } from './FeedbackRow'
 import type { AskSuccessResponse, ChatAskError } from './types'
 
 type AnswerBlockState =
@@ -130,12 +131,15 @@ function SuccessBody({
           <p className="whitespace-pre-wrap text-sm leading-relaxed">
             {response.answer}
           </p>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            {response.model ? <span>Model: {response.model}</span> : null}
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {Math.round(response.queryMs)} ms
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              {response.model ? <span>Model: {response.model}</span> : null}
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {Math.round(response.queryMs)} ms
+              </span>
+            </div>
+            <FeedbackRow queryLogId={response.queryLogId ?? null} />
           </div>
         </div>
         {response.sources.length > 0 ? (
