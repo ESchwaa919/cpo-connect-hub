@@ -56,13 +56,22 @@ async function main(): Promise<void> {
 
   let processed = 0
   let failed = 0
+  // Cursor-based loop: filter on `id > $cursor` instead of just
+  // `embedding_local IS NULL`. This guarantees the loop ALWAYS makes
+  // forward progress even when individual rows fail permanently
+  // (oversize message, tokenizer OOM, etc.) — the failed row stays
+  // NULL but the cursor advances past it so the next batch picks
+  // up unseen rows. Without this, a single persistently-failing
+  // row would re-select itself every iteration forever.
+  let cursor = '0'
   while (true) {
     const rows = await pool.query<{ id: string; message_text: string }>(
       `SELECT id::text, message_text FROM cpo_connect.chat_messages
        WHERE embedding_local IS NULL
+         AND id > $1::bigint
        ORDER BY id ASC
-       LIMIT $1`,
-      [BATCH],
+       LIMIT $2`,
+      [cursor, BATCH],
     )
     if (rows.rows.length === 0) break
 
@@ -82,7 +91,13 @@ async function main(): Promise<void> {
         )
       }
     }
-    console.log(`[backfill] processed=${processed} failed=${failed} (of ${totalCount})`)
+    // Advance past the highest-id row in this batch regardless of
+    // per-row success. Failed rows stay NULL but never re-enter the
+    // selection window.
+    cursor = rows.rows[rows.rows.length - 1].id
+    console.log(
+      `[backfill] processed=${processed} failed=${failed} cursor=${cursor} (of ${totalCount})`,
+    )
   }
   console.log(
     `[backfill] done — total processed=${processed} failed=${failed}`,

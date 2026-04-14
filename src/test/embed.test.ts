@@ -68,11 +68,13 @@ slowDescribe('embedQueryLocal (real bge-small model)', () => {
 // the @xenova/transformers pipeline export, force the first call to
 // reject, then assert the second call triggers a fresh pipeline()
 // invocation and resolves successfully.
+//
+// NOT gated by SKIP_SLOW_TESTS — this is a fast mock-only test and
+// MUST run in CI / pre-push to catch any regression on the recovery
+// path. Subagent code review caught this gating bug.
 import { vi } from 'vitest'
 
-const slowOrSkip = process.env.SKIP_SLOW_TESTS ? describe.skip : describe
-
-slowOrSkip('embed pipeline retry on transient failure', () => {
+describe('embed pipeline retry on transient failure', () => {
   it('clears loadPromise on rejection so the next call retries', async () => {
     vi.resetModules()
     const pipelineMock = vi
