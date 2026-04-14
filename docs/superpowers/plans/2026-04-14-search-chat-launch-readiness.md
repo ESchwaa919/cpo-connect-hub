@@ -107,23 +107,49 @@ function resolveName(row: AskSourceDBRow): string {
 
 #### Step 2b — Fix `syncMembersFromSheet` fallback
 
-`server/services/members.ts:76` currently writes `{ phone, displayName: name, email }` where `name = (row['Full Name'] ?? '').trim()`. If the sheet has the "Full Name" column blank but some historical row mapping wrote the phone into it, we trust the sheet blindly.
+`server/services/members.ts:76` currently writes `{ phone, displayName: name, email }` where `name = (row['Full Name'] ?? '').trim()`. The existing behavior:
+- If `name` is empty → increments `nameBlank` + **skips the row entirely** (continue). That means the member never lands in the directory cache at all, so any later message they send falls through to the sanitized-phone fallback in `pickAuthorDisplay`. That's safe but it hurts discoverability.
+- If `name` was populated with a phone string → the row IS upserted with the raw phone as `display_name`. This is the Finding B1 bug.
 
-Add a guard right before the map insert:
+**Per spec §3 finding B1 fallback clause: "write `\"Unknown member\"` or similar placeholder, NEVER the phone"** — the spec wants blank names ALSO to produce a directory entry (so the phone-based resolveAuthor chain can find the member), just with a placeholder name.
+
+Change the flow to:
+
 ```ts
-let safeName = name
-if (looksLikeRawPhone(safeName)) {
+// If the "Full Name" column is blank on the sheet row, keep the row
+// in the directory (so phone-based lookups still find it) but
+// substitute a safe placeholder instead of skipping the row.
+// Finding B1: blank names + phone-looking names both land here.
+let safeName: string
+if (!name) {
+  result.nameBlank += 1
+  safeName = 'Unknown member'
+} else if (looksLikeRawPhone(name)) {
+  // Historical: some sheet rows have the phone written into the
+  // Full Name column. Never let that reach display_name.
   console.warn(
-    `[members-sync] sheet row ${name} looks like a raw phone — substituting "Unknown member"`,
+    `[members-sync] sheet row "${name}" looks like a raw phone — substituting "Unknown member"`,
   )
   safeName = 'Unknown member'
+} else {
+  safeName = name
 }
+
+// (existing phone normalize + dedupe)
 dedupedByPhone.set(phone, { phone, displayName: safeName, email })
 ```
 
+Remove the early `continue` on blank name — the row still gets cached + upserted with the placeholder.
+
 Import `looksLikeRawPhone` from `../lib/phone.ts`.
 
-The existing `nameBlank` counter still covers the "Full Name was literally blank" case — this new guard is specifically for the "Full Name was populated with a phone string" case, which should bump `phoneFailed` no, actually — it's a name-quality issue, not a phone-normalize issue. Keep it as a `console.warn` only, don't touch the counters so existing tests still pass.
+Update `src/test/members-sync.test.ts` existing `'skips rows with blank Full Name'` test — the behavior now changes. Rename to `'substitutes placeholder for blank Full Name'` and assert:
+- `result.nameBlank === 1`
+- `result.upserted === 1`
+- SQL param array contains `'Unknown member'` for the names slot
+- `getMemberByPhone(...)` returns the placeholder-named row
+
+Add a second new test: `'substitutes placeholder for a Full Name that looks like a raw phone'` covering the historical bug case.
 
 #### Step 2c — Backfill migration
 
@@ -239,12 +265,14 @@ CHAT_SEARCH_MIN_SIMILARITY=0.4
 
 #### Step 4a — Migration
 
+Spec shape calls out `id, organization_id, user_id, query_text, answer_text, source_count, query_ms, model, created_at`. CPO Connect is single-tenant (no organization_id column anywhere else in the schema), so we drop that column and map `user_id` → the email identifier that the sessions table already uses. The column is named `user_id` per the spec so downstream CSV tooling sees the expected shape.
+
 `server/migrations/013-chat-query-log.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS cpo_connect.chat_query_log (
   id            BIGSERIAL PRIMARY KEY,
-  user_email    TEXT NOT NULL,
+  user_id       TEXT NOT NULL,  -- email — matches sessions.email
   query_text    TEXT NOT NULL,
   answer_text   TEXT,
   source_count  INT NOT NULL DEFAULT 0,
@@ -257,8 +285,8 @@ CREATE TABLE IF NOT EXISTS cpo_connect.chat_query_log (
 CREATE INDEX IF NOT EXISTS idx_chat_query_log_created_at
   ON cpo_connect.chat_query_log (created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_chat_query_log_user_email
-  ON cpo_connect.chat_query_log (user_email);
+CREATE INDEX IF NOT EXISTS idx_chat_query_log_user_id
+  ON cpo_connect.chat_query_log (user_id);
 
 CREATE TABLE IF NOT EXISTS cpo_connect.chat_query_feedback (
   id             BIGSERIAL PRIMARY KEY,
@@ -271,8 +299,6 @@ CREATE INDEX IF NOT EXISTS idx_chat_query_feedback_log_id
   ON cpo_connect.chat_query_feedback (query_log_id);
 ```
 
-Organization_id is not needed — this is a single-org product.
-
 #### Step 4b — Log on success in askHandler
 
 After the `synthesizeAnswer` call resolves successfully and we have `answer`, `model`, `sources`, compute `queryMs = Date.now() - startedAt`, then:
@@ -280,11 +306,11 @@ After the `synthesizeAnswer` call resolves successfully and we have `answer`, `m
 ```ts
 const logRow = await pool.query<{ id: string }>(
   `INSERT INTO cpo_connect.chat_query_log
-     (user_email, query_text, answer_text, source_count, query_ms, model, channels)
+     (user_id, query_text, answer_text, source_count, query_ms, model, channels)
    VALUES ($1, $2, $3, $4, $5, $6, $7)
    RETURNING id::text`,
   [
-    email,
+    email, // email is the user_id in this codebase
     query,
     answer,
     sources.length,
@@ -320,6 +346,8 @@ res.status(200).json({
 
 #### Step 4c — POST /api/chat/feedback endpoint
 
+Ownership check is mandatory: a user must only be able to rate THEIR OWN query log rows, never anyone else's. Enforce via a subquery that matches `user_id = $currentUser` before the feedback insert.
+
 Add after `askHandler`:
 
 ```ts
@@ -330,6 +358,7 @@ interface FeedbackBody {
 
 export async function feedbackHandler(req: Request, res: Response): Promise<void> {
   try {
+    const email = req.user!.email.toLowerCase()
     const body = req.body as FeedbackBody
     const queryLogId = typeof body.queryLogId === 'string' ? body.queryLogId : null
     const rating =
@@ -340,22 +369,24 @@ export async function feedbackHandler(req: Request, res: Response): Promise<void
       res.status(400).json({ error: 'bad_query' })
       return
     }
-    // Cast queryLogId to bigint at the DB layer; if the row doesn't
-    // exist the FK will reject and we return 404.
-    try {
-      await pool.query(
-        `INSERT INTO cpo_connect.chat_query_feedback (query_log_id, rating)
-         VALUES ($1::bigint, $2)`,
-        [queryLogId, rating],
-      )
-    } catch (err) {
-      // FK violation → 404, anything else → 500.
-      const msg = (err as Error).message
-      if (msg.includes('foreign key') || msg.includes('violates foreign key')) {
-        res.status(404).json({ error: 'query_log_not_found' })
-        return
-      }
-      throw err
+
+    // Ownership check + insert in one statement. The INSERT ... SELECT
+    // only produces a row when user_id matches the caller, so we can
+    // distinguish "log row exists but not yours" from "log row missing"
+    // by looking at rowCount.
+    const result = await pool.query(
+      `INSERT INTO cpo_connect.chat_query_feedback (query_log_id, rating)
+       SELECT id, $2
+       FROM cpo_connect.chat_query_log
+       WHERE id = $1::bigint AND user_id = $3`,
+      [queryLogId, rating, email],
+    )
+    if ((result.rowCount ?? 0) === 0) {
+      // Either the row doesn't exist or the caller doesn't own it.
+      // Don't distinguish — same 404 in both cases to avoid leaking
+      // existence.
+      res.status(404).json({ error: 'query_log_not_found' })
+      return
     }
     res.status(204).end()
   } catch (err) {
@@ -369,14 +400,24 @@ Mount on `chatMemberRouter`:
 chatMemberRouter.post('/feedback', requireAuth, feedbackHandler)
 ```
 
+Test additions in `src/test/chat-routes.test.ts`:
+- `feedbackHandler rejects rating another user's query with 404` — insert a query_log row owned by user A, POST feedback as user B, assert 404 + no row inserted.
+- `feedbackHandler accepts a valid thumbs_up from the query owner` — happy path.
+
 #### Step 4d — CSV export endpoint (admin only)
+
+Per Cluster F in the spec: **the CSV export must redact the `user_id` column to `'A member'` for any row whose asker has `chat_identification_opted_out = true`**. The query still surfaces the row + the query text (Erik needs the question content to evaluate answer quality), but the identity column is masked.
 
 ```ts
 export async function queryLogCsvHandler(req: Request, res: Response): Promise<void> {
   try {
+    // LEFT JOIN member_profiles so we can redact the user_id column
+    // for opted-out askers. The COALESCE makes opt-out a hard default
+    // (row missing from member_profiles → treat as NOT opted out,
+    // which is safer than leaking on a join miss).
     const result = await pool.query<{
       id: string
-      user_email: string
+      user_id_display: string
       query_text: string
       answer_text: string | null
       source_count: number
@@ -387,7 +428,11 @@ export async function queryLogCsvHandler(req: Request, res: Response): Promise<v
     }>(
       `SELECT
          l.id::text,
-         l.user_email,
+         CASE
+           WHEN COALESCE(mp.chat_identification_opted_out, false) = true
+             THEN 'A member'
+           ELSE l.user_id
+         END AS user_id_display,
          l.query_text,
          l.answer_text,
          l.source_count,
@@ -396,18 +441,19 @@ export async function queryLogCsvHandler(req: Request, res: Response): Promise<v
          l.created_at::text,
          f.rating
        FROM cpo_connect.chat_query_log l
+       LEFT JOIN cpo_connect.member_profiles mp ON mp.email = l.user_id
        LEFT JOIN cpo_connect.chat_query_feedback f ON f.query_log_id = l.id
        ORDER BY l.created_at DESC
        LIMIT 5000`,
     )
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', 'attachment; filename="chat-query-log.csv"')
-    res.write('id,user_email,query_text,answer_text,source_count,query_ms,model,created_at,rating\n')
+    res.write('id,user_id,query_text,answer_text,source_count,query_ms,model,created_at,rating\n')
     for (const row of result.rows) {
       res.write(
         [
           row.id,
-          csvEscape(row.user_email),
+          csvEscape(row.user_id_display),
           csvEscape(row.query_text),
           csvEscape(row.answer_text ?? ''),
           row.source_count,
@@ -437,7 +483,9 @@ Mount on `chatAdminRouter`:
 chatAdminRouter.get('/query-log.csv', requireAuth, requireAdmin, queryLogCsvHandler)
 ```
 
-**Opt-out respect (Cluster F):** the log row stores `user_email` (the asker's own email). If the ASKER has `chat_identification_opted_out = true`, that's their own data — they can't opt out of their own actions. The privacy concern is whether the answer text contains OTHER users' names. Since the opt-out flag only affects how `pickAuthorDisplay` renders other people's names in the UI (already "A member" for opted-out users), the answer text that gets logged is already sanitized at synthesis time. No additional redaction needed. Add a test asserting this.
+**Opt-out respect test (Cluster F):** add to `src/test/chat-routes.test.ts`:
+
+- `queryLogCsvHandler redacts user_id to "A member" for opted-out askers` — seed one opted-out member + one regular member, insert a query_log row for each, hit the CSV endpoint, assert the opted-out row's `user_id` column is `'A member'` and the regular row's is their email. Assert the query_text column for the opted-out row is still present (we redact identity, not content).
 
 #### Step 4e — Frontend thumbs buttons
 
@@ -713,24 +761,104 @@ Run sequentially inside the existing batch loop (embed-then-insert per row). Not
 
 ---
 
-### Task 10: Update askHandler query path
+### Task 10: Update askHandler query path — STAGED ROLLOUT via env flag
+
+**Critical sequencing fix:** naively switching `askHandler`'s query to `cm.embedding_local` the moment PR 2 deploys would take Search Chat offline during the backfill window — every row has `embedding_local = NULL` until the backfill script finishes, and the WHERE clause would filter them all out. Zero rows = empty state on every query.
+
+**Staged rollout:** gate the new query path behind an env flag `USE_LOCAL_EMBEDDINGS` that defaults to `false`. Erik flips it to `true` via the Render dashboard AFTER the backfill is verified complete, which triggers an automatic redeploy with the new path live.
 
 **Files:**
 - Modify: `server/routes/chat.ts` `askHandler`
 
 **Steps:**
 
-1. Replace `await embedQuery(query)` with `await embedQueryLocal(query)`. No more Gemini round-trip on the hot path.
-2. Change the SQL to use `cm.embedding_local` instead of `cm.embedding` everywhere in the vector clauses:
-   ```sql
-   ORDER BY cm.embedding_local <=> $1::vector
-   AND (1 - (cm.embedding_local <=> $1::vector)) > $6
+1. Add a module-level env read (alongside `CHAT_SEARCH_MIN_SIMILARITY` from PR 1):
+   ```ts
+   const USE_LOCAL_EMBEDDINGS: boolean = (() => {
+     const raw = process.env.USE_LOCAL_EMBEDDINGS
+     return raw === 'true' || raw === '1'
+   })()
    ```
-3. Also change `WHERE cm.embedding IS NOT NULL` → `WHERE cm.embedding_local IS NOT NULL`. This lets rows missing the local embedding (not yet backfilled) short-circuit out of search results.
-4. Keep the relevance cutoff parameter from PR 1 intact.
-5. Remove the old `EmbeddingUnavailableError` code path — local embedding can't fail with a network error, only with an out-of-memory error which crashes the process anyway. Trim the 503 `embedding_unavailable` branch.
+   Default = `false`. This keeps the Gemini path live immediately after PR 2 deploys.
 
-Actually — **keep the 503 branch** for now. Local embed can still throw on edge cases (empty string, tokenizer OOM on very long input). The error branch is cheap insurance.
+2. Branch the embed call:
+   ```ts
+   let embedding: number[]
+   try {
+     embedding = USE_LOCAL_EMBEDDINGS
+       ? await embedQueryLocal(query)
+       : await embedQuery(query)
+   } catch (err) {
+     if (err instanceof EmbeddingUnavailableError) {
+       // Gemini path only — local path won't throw this
+       res.setHeader('Retry-After', '30')
+       res.status(503).json({
+         error: ChatErrorCode.EMBEDDING_UNAVAILABLE,
+         retryAfterSec: 30,
+       })
+       return
+     }
+     throw err
+   }
+   ```
+
+3. Branch the SQL column selection. The cleanest shape is to build the query string dynamically with the column name swapped:
+   ```ts
+   const embedCol = USE_LOCAL_EMBEDDINGS ? 'embedding_local' : 'embedding'
+   const result = await pool.query<AskSourceDBRow>(
+     `SELECT
+        cm.id::text AS id,
+        ...
+        1 - (cm.${embedCol} <=> $1::vector) AS similarity
+      FROM cpo_connect.chat_messages cm
+      LEFT JOIN cpo_connect.members mem ON mem.phone = cm.sender_phone
+      LEFT JOIN cpo_connect.member_profiles mp ON cm.author_email = mp.email
+      WHERE cm.${embedCol} IS NOT NULL
+        AND (1 - (cm.${embedCol} <=> $1::vector)) > $6
+        AND ($2::text[] IS NULL OR cm.channel = ANY($2::text[]))
+        AND ($3::timestamptz IS NULL OR cm.sent_at >= $3)
+        AND ($4::timestamptz IS NULL OR cm.sent_at <= $4)
+      ORDER BY cm.${embedCol} <=> $1::vector
+      LIMIT $5`,
+     [
+       toVectorLiteral(embedding),
+       channels,
+       dateFrom,
+       dateTo,
+       limit,
+       CHAT_SEARCH_MIN_SIMILARITY,
+     ],
+   )
+   ```
+   **String interpolation of `${embedCol}` is SAFE** because the value is one of two compile-time constants (`'embedding'` or `'embedding_local'`), not user input. No SQL-injection vector.
+
+4. Keep the `EmbeddingUnavailableError` 503 branch — local embed can still throw on edge cases (empty string, tokenizer OOM on very long input), and we want the same user-facing error shape regardless of which embed path is live.
+
+5. Add a one-line console.log at handler entry so Render logs show which path served the request:
+   ```ts
+   console.log(`[chat/ask] embed path=${USE_LOCAL_EMBEDDINGS ? 'local' : 'gemini'}`)
+   ```
+
+**Staged rollout sequence after PR 2 merges and deploys:**
+
+1. Migration 014 runs, `embedding_local` column exists (empty).
+2. Server boots, `warmLocalEmbedPipeline()` loads bge-small (~5-10s).
+3. `[embed] local pipeline ready` log appears.
+4. `USE_LOCAL_EMBEDDINGS=false` (default), so all ask queries still use Gemini. **Search Chat stays 100% functional during this window.**
+5. Erik SSHes / runs the backfill script locally against prod DB (requires IP allow-list):
+   ```
+   npx tsx server/scripts/backfill-local-embeddings.ts
+   ```
+   Script logs progress every 50 rows, completes in ~10-15 minutes for 722 rows (~1 second per row including DB round-trip).
+6. Erik runs a verification SQL in Render's psql or locally: `SELECT COUNT(*) FROM cpo_connect.chat_messages WHERE embedding_local IS NULL;` — expects 0.
+7. Erik flips `USE_LOCAL_EMBEDDINGS=true` in the Render dashboard. Render auto-redeploys (~2 min).
+8. Erik runs 5 test queries. Each request log now shows `embed path=local`.
+9. Erik checks Gemini API dashboard — request count should stop climbing from this point.
+10. **If anything breaks:** Erik flips the env var back to `false`, Render redeploys, Gemini path is restored. Zero downtime rollback.
+
+**Verification:**
+- PR 2 with the default `USE_LOCAL_EMBEDDINGS=false` is effectively a no-op on the query path — Search Chat behavior is unchanged immediately after deploy.
+- The local path comes online only after Erik explicitly flips the flag, giving us a clean rollback lever.
 
 ---
 
@@ -752,10 +880,19 @@ Actually — **keep the 503 branch** for now. Local embed can still throw on edg
 5. Open PR
 6. Codex PR review, loop until clean
 7. Merge (Erik pre-authorized)
-8. Poll Render deploy — memory monitoring critical. The new dep adds ~150 MB RAM baseline. Render Standard = 2 GB, so we have headroom, but watch for OOM-kill events in the first 10 minutes after deploy.
-9. Erik updates IP allow list (if needed) and runs `npx tsx server/scripts/backfill-local-embeddings.ts` against prod
-10. Erik runs 5 queries on prod, confirms answer quality is comparable
-11. Ping Erik with deploy verification + backfill completion
+8. **Render deploys with `USE_LOCAL_EMBEDDINGS=false` — Search Chat is still on the Gemini path, zero user-facing change.** Watch Render deploy logs for:
+   - Migration 014 applied cleanly
+   - `[embed] local pipeline ready` boot line
+   - Memory footprint stabilized (baseline + ~150-200 MB for bge-small)
+9. Ping Erik: "PR 2 deployed in safe mode. Ready for you to run backfill + flip the flag."
+10. Erik runs `npx tsx server/scripts/backfill-local-embeddings.ts` locally against prod (Starlink IP allow-list prerequisite).
+11. Erik verifies `SELECT COUNT(*) FROM cpo_connect.chat_messages WHERE embedding_local IS NULL;` returns 0.
+12. Erik flips `USE_LOCAL_EMBEDDINGS=true` in the Render dashboard → auto-redeploy.
+13. Erik runs 5 prod queries, confirms answer quality is comparable to Gemini.
+14. Erik monitors Render memory for 10 minutes post-flip — target stable under 1.5 GB.
+15. Ping Erik with "local path live, Gemini path retired" summary.
+
+**Rollback if needed:** Erik flips `USE_LOCAL_EMBEDDINGS` back to `false`, Render redeploys, done. ~3 minutes to restore the Gemini path.
 
 ---
 
