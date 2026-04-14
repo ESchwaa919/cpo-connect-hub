@@ -56,3 +56,47 @@ slowDescribe('embedQueryLocal (real bge-small model)', () => {
     expect(dot).toBeLessThan(0.9)
   })
 })
+
+// Regression test for the codex pass-1 finding: getPipeline()'s
+// loadPromise must clear on rejection so a transient model-load
+// failure can be retried on the next call. Without the .catch reset,
+// a single network blip during warmLocalEmbedPipeline() would
+// permanently 503 the local embed path until the process restarts.
+//
+// We can't easily simulate a failed pipeline() call against the real
+// model, so this test proves the unit-level recovery shape: we mock
+// the @xenova/transformers pipeline export, force the first call to
+// reject, then assert the second call triggers a fresh pipeline()
+// invocation and resolves successfully.
+import { vi } from 'vitest'
+
+const slowOrSkip = process.env.SKIP_SLOW_TESTS ? describe.skip : describe
+
+slowOrSkip('embed pipeline retry on transient failure', () => {
+  it('clears loadPromise on rejection so the next call retries', async () => {
+    vi.resetModules()
+    const pipelineMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce(async () => ({
+        data: new Float32Array(384).fill(0.05),
+      }))
+
+    vi.doMock('@xenova/transformers', () => ({
+      pipeline: pipelineMock,
+    }))
+
+    const { embedQueryLocal } = await import('../../server/lib/embed')
+    await expect(embedQueryLocal('first attempt')).rejects.toThrow(
+      'network blip',
+    )
+    // Second call must trigger a fresh pipeline() invocation, NOT
+    // re-throw the cached rejection.
+    const vec = await embedQueryLocal('second attempt')
+    expect(vec).toHaveLength(384)
+    expect(pipelineMock).toHaveBeenCalledTimes(2)
+
+    vi.doUnmock('@xenova/transformers')
+    vi.resetModules()
+  })
+})

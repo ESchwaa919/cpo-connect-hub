@@ -23,13 +23,23 @@ async function getPipeline(): Promise<FeatureExtractionPipeline> {
   if (!loadPromise) {
     loadPromise = pipeline('feature-extraction', MODEL_ID, {
       quantized: true,
-    }).then((p) => {
-      pipe = p as FeatureExtractionPipeline
-      console.log(
-        `[embed] local pipeline ready (${MODEL_ID}, dim=${LOCAL_EMBEDDING_DIM})`,
-      )
-      return pipe
     })
+      .then((p) => {
+        pipe = p as FeatureExtractionPipeline
+        console.log(
+          `[embed] local pipeline ready (${MODEL_ID}, dim=${LOCAL_EMBEDDING_DIM})`,
+        )
+        return pipe
+      })
+      .catch((err) => {
+        // Critical: clear loadPromise so the next call retries the
+        // download instead of forever re-throwing the same rejection.
+        // Without this, a single transient failure (network blip,
+        // HuggingFace outage, etc.) at warm-up time would permanently
+        // break the local embed pipeline until the process restarts.
+        loadPromise = null
+        throw err
+      })
   }
   return loadPromise
 }
