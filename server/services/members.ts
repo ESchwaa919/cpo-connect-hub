@@ -41,7 +41,14 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
   cacheByEmail.clear()
   cacheByName.clear()
 
-  const valid: MemberRow[] = []
+  // Dedupe by normalized phone — Postgres bulk INSERT ... ON CONFLICT
+  // DO UPDATE rejects the whole statement with "ON CONFLICT DO UPDATE
+  // command cannot affect row a second time" if the input contains two
+  // rows with the same conflict-target value. The Sheet has duplicates
+  // (same phone listed under multiple rows), so dedupe in JS before
+  // sending. Last write wins, matching the previous per-row INSERT
+  // loop's behavior.
+  const dedupedByPhone = new Map<string, MemberRow>()
   for (const row of rows) {
     const status = (row['Status'] ?? '').trim().toLowerCase()
     if (status !== 'joined') {
@@ -66,8 +73,9 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
     }
 
     const email = (row['Email'] ?? '').trim() || null
-    valid.push({ phone, displayName: name, email })
+    dedupedByPhone.set(phone, { phone, displayName: name, email })
   }
+  const valid = Array.from(dedupedByPhone.values())
 
   // Single bulk upsert via unnest() — one round-trip instead of N.
   if (valid.length > 0) {
