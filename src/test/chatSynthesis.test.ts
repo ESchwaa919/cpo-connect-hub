@@ -46,6 +46,41 @@ describe('chatSynthesis', () => {
     expect(options?.timeout).toBe(20_000)
   })
 
+  // Determinism + soft-inference rule — two complementary guarantees
+  // fixing the "same query, two wildly different answers" regression
+  // Erik hit on the Dex query in prod.
+  it('passes temperature: 0.2 to Claude for near-deterministic synthesis', async () => {
+    createMock.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'ok' }],
+      model: 'claude-sonnet-4-5',
+      stop_reason: 'end_turn',
+    })
+    const { synthesizeAnswer } = await import('../../server/services/chatSynthesis')
+    await synthesizeAnswer({ query: 'q', sources: [] })
+    const [payload] = createMock.mock.calls[0]
+    expect(payload.temperature).toBe(0.2)
+  })
+
+  it('system prompt allows hedged soft-inference for chat-corpus sources', async () => {
+    createMock.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'ok' }],
+      model: 'claude-sonnet-4-5',
+      stop_reason: 'end_turn',
+    })
+    const { synthesizeAnswer } = await import('../../server/services/chatSynthesis')
+    await synthesizeAnswer({ query: 'q', sources: [] })
+    const [payload] = createMock.mock.calls[0]
+    const system = payload.system as string
+    // New rule: allow hedged inference + forbid fabrication.
+    expect(system).toContain('appears to be')
+    expect(system).toContain('Never invent specific facts')
+    expect(system).toContain('WhatsApp chat excerpts')
+    // Old over-strict rule phrasing must be gone — it was the
+    // "If the sources don't contain enough info, say so plainly. Don't
+    // fabricate." line that caused Run-2 refusals.
+    expect(system).not.toContain("Don't fabricate")
+  })
+
   it('throws SynthesisUnavailableError when Claude errors out', async () => {
     createMock.mockRejectedValueOnce(new Error('request timed out'))
 
