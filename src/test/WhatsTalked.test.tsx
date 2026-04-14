@@ -220,8 +220,12 @@ describe('WhatsTalked page — privacy disclosure', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Search Chat/i,
+        name: /What are our members talking about/i,
       }),
+    ).toBeInTheDocument()
+    // Beta pill sets user expectation next to the headline.
+    expect(
+      screen.getByLabelText('Beta feature — quality improving'),
     ).toBeInTheDocument()
 
     expect(await screen.findByText('Current tile')).toBeInTheDocument()
