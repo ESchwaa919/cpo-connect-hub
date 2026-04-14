@@ -112,6 +112,47 @@ describe('syncMembersFromSheet', () => {
     expect(result.nameBlank).toBe(1)
   })
 
+  it('dedupes by normalized phone before bulk upsert (regression: ON CONFLICT DO UPDATE cannot affect row twice)', async () => {
+    // Two sheet rows that normalize to the same E.164 phone — Postgres
+    // bulk INSERT ... ON CONFLICT DO UPDATE would 500 if both reached
+    // the SQL layer with the same conflict target.
+    mockFetchSheet1RawRows.mockResolvedValueOnce([
+      {
+        'Full Name': 'Sarah Jenkins',
+        Email: 'sarah@example.com',
+        'Phone number': '07911 123456',
+        Status: 'Joined',
+      },
+      {
+        'Full Name': 'Sarah J',
+        Email: 'sarahj@example.com',
+        // Same number, different formatting — should normalize to identical E.164
+        'Phone number': '+44 7911 123456',
+        Status: 'Joined',
+      },
+    ])
+    mockQuery.mockResolvedValue({ rowCount: 1 })
+
+    const result = await syncMembersFromSheet()
+
+    const upsertCalls = mockQuery.mock.calls.filter(
+      (c) =>
+        typeof c[0] === 'string' &&
+        c[0].includes('INSERT INTO cpo_connect.members'),
+    )
+    expect(upsertCalls).toHaveLength(1)
+    const [phones] = upsertCalls[0][1] as [
+      string[],
+      string[],
+      Array<string | null>,
+    ]
+    // Critical: only one row reaches the SQL layer, regardless of how
+    // many sheet rows had the same phone.
+    expect(phones).toHaveLength(1)
+    expect(new Set(phones).size).toBe(phones.length)
+    expect(result.upserted).toBe(1)
+  })
+
   it('matches Status case-insensitively (lowercase `joined`)', async () => {
     mockFetchSheet1RawRows.mockResolvedValueOnce([
       {
