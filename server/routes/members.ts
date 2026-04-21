@@ -4,6 +4,8 @@ import { requireAuth } from '../middleware/auth.ts'
 import { getDirectory, lookupMember } from '../services/sheets.ts'
 import pool from '../db.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
+import { normalizeLinkedinUrl } from '../lib/url.ts'
+import { dedupeDirectoryByEmail } from './directory-dedupe.ts'
 
 function gravatarUrl(email: string, size = 80): string {
   const hash = createHash('md5').update(email.trim().toLowerCase()).digest('hex')
@@ -75,6 +77,21 @@ router.put('/profile', requireAuth, async (req, res) => {
       }
     }
 
+    // Normalize linkedin_url on save so legacy un-protocoled values
+    // (e.g. "www.linkedin.com/in/Handle") can't persist a href that the
+    // browser would resolve as relative → /members/... 404.
+    if (typeof updates.linkedin_url === 'string' && updates.linkedin_url.trim()) {
+      const normalized = normalizeLinkedinUrl(updates.linkedin_url)
+      if (!normalized) {
+        res.status(400).json({
+          error: 'LinkedIn URL must be a linkedin.com address',
+          code: 'invalid_linkedin_url',
+        })
+        return
+      }
+      updates.linkedin_url = normalized
+    }
+
     if (Object.keys(updates).length === 0) {
       res.status(400).json({ error: 'No valid fields to update', code: 'no_fields' })
       return
@@ -139,6 +156,14 @@ router.post('/profile/resync', requireAuth, async (req, res) => {
         updates[dbCol] = sheetVal
       }
     }
+    // Sheet values for LinkedIn historically omit the protocol
+    // ("www.linkedin.com/in/Handle"). Normalize before persisting so the
+    // directory card href isn't resolved as a relative path.
+    if (updates.linkedin_url) {
+      const normalized = normalizeLinkedinUrl(updates.linkedin_url)
+      if (normalized) updates.linkedin_url = normalized
+      else delete updates.linkedin_url
+    }
 
     if (Object.keys(updates).length === 0) {
       // Nothing to fill — return current profile unchanged
@@ -178,7 +203,11 @@ const DB_TO_SHEET: [string, string][] = [
 router.get('/directory', requireAuth, async (req, res) => {
   try {
     trackEvent(AnalyticsEvent.DIRECTORY_VIEW, req.user!.email)
-    const members = await getDirectory()
+    // Sheet1 can contain more than one row for the same email when a
+    // member is re-invited (per Tania Shedley triple-bug report). Collapse
+    // to one row per lowercased email before enriching so the directory
+    // never surfaces the same person twice.
+    const members = dedupeDirectoryByEmail(await getDirectory())
 
     // Sheet1 uses 'Email' column
     const emails = members

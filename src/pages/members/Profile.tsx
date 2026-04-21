@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MemberAvatar } from "@/components/members/directory/MemberAvatar"
+import { normalizeLinkedinUrl } from "@/lib/url"
 import {
   fetchMemberProfile,
   MEMBER_PROFILE_QUERY_KEY,
@@ -119,7 +120,11 @@ export default function Profile() {
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    saveMutation.mutate(form)
+    const payload: Partial<Profile> = { ...form }
+    if (typeof payload.linkedin_url === "string" && payload.linkedin_url.trim()) {
+      payload.linkedin_url = normalizeLinkedinUrl(payload.linkedin_url)
+    }
+    saveMutation.mutate(payload)
   }
 
   if (isLoading) return <ProfileSkeleton />
@@ -207,7 +212,9 @@ export default function Profile() {
                 <Label htmlFor="linkedin_url">LinkedIn URL</Label>
                 <Input
                   id="linkedin_url"
-                  type="url"
+                  type="text"
+                  inputMode="url"
+                  placeholder="https://www.linkedin.com/in/your-handle"
                   value={form.linkedin_url ?? ""}
                   onChange={(e) => onChange("linkedin_url", e.target.value)}
                 />
