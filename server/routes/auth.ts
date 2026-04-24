@@ -8,6 +8,7 @@ import { createRateLimiter } from '../services/rate-limit.ts'
 import { requireAuth } from '../middleware/auth.ts'
 import { isAdminEmail } from '../middleware/requireAdmin.ts'
 import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
+import { normalizeLinkedinUrl } from '../lib/url.ts'
 import type { MemberRecord } from '../services/sheets.ts'
 
 const router = Router()
@@ -183,7 +184,7 @@ router.get('/verify', async (req, res) => {
             member.location,
             member.focusAreas,
             member.areasOfInterest,
-            member.linkedinUrl,
+            normalizeLinkedinUrl(member.linkedinUrl),
             member.phone,
           ]
         )

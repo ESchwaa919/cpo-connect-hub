@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { normalizeLinkedinUrl } from "@/lib/url"
 import { MemberAvatar } from "./MemberAvatar"
 
 interface MemberCardProps {
@@ -30,6 +31,7 @@ export function MemberCard({
   email, phone, bio, skills, areasOfInterest, location,
   gravatarUrl, photoUrl, memberSince, expanded, onToggle,
 }: MemberCardProps) {
+  const linkedInHref = normalizeLinkedinUrl(linkedIn)
   return (
     <Card
       className={cn(
@@ -53,8 +55,8 @@ export function MemberCard({
             <div className="flex items-center gap-2">
               <span className="font-semibold text-sm truncate">{name}</span>
               <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                {linkedIn && (
-                  <a href={linkedIn} target="_blank" rel="noopener noreferrer"
+                {linkedInHref && (
+                  <a href={linkedInHref} target="_blank" rel="noopener noreferrer"
                     className="text-muted-foreground hover:text-primary transition-colors"
                     aria-label={`${name} on LinkedIn`}>
                     <Linkedin className="h-4 w-4" />
@@ -164,8 +166,8 @@ export function MemberCard({
                   {phone && (
                     <a href={`tel:${phone}`} className="text-primary hover:underline">{phone}</a>
                   )}
-                  {linkedIn && (
-                    <a href={linkedIn} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{linkedIn}</a>
+                  {linkedInHref && (
+                    <a href={linkedInHref} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{linkedInHref}</a>
                   )}
                 </div>
               </div>
