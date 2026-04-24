@@ -18,24 +18,24 @@ Deployed on Render (Frankfurt): `cpo-connect-hub` service. Shares the region-loc
 |---|---|
 | `src/` | React frontend (Vite + TS) |
 | `src/pages/members/` | Authenticated members area (ChatInsights, Directory, Profile) |
-| `src/data/insights/` | Static per-month insight React components (Jan 2026, Feb 2026, etc.) |
+| **`src/data/insights/`** | **Canonical home for monthly chat insight components (React/TSX). Each month is its own component; rendered by `src/pages/members/ChatInsights.tsx`.** |
 | `server.ts` | Express backend entry |
 | `server/` | Backend routes, migrations, db helpers |
 | `server/migrations/` | SQL migrations run on startup |
-| **`reference/`** | **Historic / archival chat analysis HTML files and source material. The canonical location for legacy chat insight artifacts.** |
+| `reference/` | Legacy static HTML artifacts (Jan/Feb/Mar 2026 chat analyses + `general.html`). Not served to members; kept for historical link continuity only. **Do NOT add new chat-insight work here** — new monthly insights belong in `src/data/insights/` and render via `src/pages/members/ChatInsights.tsx`. |
 | `public/` | Static assets for the frontend |
 | `dist/` | Build output |
 
 ## The `reference/` directory
 
-This is the canonical home for historic chat analysis artifacts.
+Legacy / archival. Contains the original standalone static HTML chat analyses from before the members area existed. These files are **not served to members** — the canonical surface for monthly insights is the ChatInsights members page (`/members/chat-insights`).
 
 Current contents (as of 2026-04-10):
-- `chat-analysis-jan2026.html` — Jan 2026 insights (original)
-- `chat-analysis-feb2026.html` — Feb 2026 insights (original)
+- `chat-analysis-jan2026.html` — Jan 2026 insights (original static HTML)
+- `chat-analysis-feb2026.html` — Feb 2026 insights (original static HTML)
 - `general.html` — early general channel snapshot
 
-**Rule:** When new monthly chat insights are built, they should live in `reference/` alongside the existing ones (not in the parent `~/Projects/CPO Connect/` directory). Any cross-navigation between monthly files should use relative paths within `reference/`.
+**Rule (updated 2026-04-24):** `reference/` is archival only. New monthly chat insights live as TSX components in `src/data/insights/` and are rendered via `src/pages/members/ChatInsights.tsx`. Do not add new `.html` files under `reference/`.
 
 ## Authentication
 
@@ -74,7 +74,7 @@ No local dev database by default — local dev hits the remote Postgres via `DAT
 
 ## Don't
 
-- Don't commit `reference/` files as part of normal dev — they're archival artifacts, updated by their own dispatch flow
+- Don't add new files to `reference/` — it's archival only. Monthly insights belong in `src/data/insights/`.
 - Don't modify schema without a migration file in `server/migrations/`
 - Don't bypass ProtectedRoute for members-only routes
 - Don't store secrets in source — all secrets are Render env vars
