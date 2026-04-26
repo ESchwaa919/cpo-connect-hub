@@ -95,6 +95,14 @@ describe('normalizePhone — international without +', () => {
     expect(normalizePhone('07911 123456')).toBe('+447911123456')
   })
 
+  it('does NOT mis-recover a UK landline written without trunk-0 (codex PR #39 regression)', () => {
+    // 2034567890 is a London landline without the leading 0 — i.e. the
+    // raw national number for +44 20 3456 7890. Pre-fix, the heuristic
+    // ran first and coerced it to +2034567890 (Egypt). The default-
+    // country parse must run FIRST so this resolves to UK.
+    expect(normalizePhone('2034567890')).toBe('+442034567890')
+  })
+
   it('does NOT mis-recover a short non-international digit string', () => {
     // 12345 → 5 digits → fails the length-≥10 guard → heuristic skips →
     // GB fallback also fails → null.

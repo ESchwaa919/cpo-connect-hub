@@ -11,13 +11,22 @@ export function normalizePhone(
   const cleaned = raw.replace(/^~\s*/, '').trim()
   if (!cleaned) return null
 
+  // Try the default-country parse first. This catches every UK number,
+  // including the no-trunk-prefix landline form ("2034567890" → London
+  // +44 20 3456 7890), which would otherwise be silently mis-coerced
+  // by the international-prepend heuristic below into a foreign country
+  // that happens to share the leading digits (e.g. +20 = Egypt). Codex
+  // review of PR #39 (2026-04-26) caught this regression class.
+  const parsed = parsePhoneNumberFromString(cleaned, defaultCountry)
+  if (parsed?.isValid()) return parsed.format('E.164')
+
   // International-without-`+` recovery. Sheet1 historically stores foreign
   // numbers as bare digit strings (e.g. "918826955500" for an Indian
-  // mobile). With defaultCountry=GB, libphonenumber treats those as UK
-  // national numbers and rejects them. Try prepending '+' first; if it
-  // parses to a valid international number, use that. Skip when the
-  // string starts with '0' (UK trunk prefix) so UK mobiles continue to
-  // flow through the GB default-country path unchanged. See
+  // mobile). With defaultCountry=GB, those rows fail the parse above
+  // because the digits don't match a UK national pattern. Try prepending
+  // `+` and re-parsing as international; accept only on isValid. Skip
+  // when the string starts with '0' (UK trunk prefix) so we never coerce
+  // a UK-shaped number into a foreign country. See
   // .reports/2026-04-25-cpo-sync-members-actionable.md for the 38-row
   // analysis behind this heuristic.
   const noWs = cleaned.replace(/\s/g, '')
@@ -26,9 +35,7 @@ export function normalizePhone(
     if (intl?.isValid()) return intl.format('E.164')
   }
 
-  const parsed = parsePhoneNumberFromString(cleaned, defaultCountry)
-  if (!parsed || !parsed.isValid()) return null
-  return parsed.format('E.164')
+  return null
 }
 
 /** Sanitize an E.164 number to country code + last-three-digit form.
