@@ -199,6 +199,51 @@ describe('syncMembersFromSheet', () => {
     expect(phones).toHaveLength(1)
     expect(new Set(phones).size).toBe(phones.length)
     expect(result.upserted).toBe(1)
+    // The second sheet row with the same normalized phone is silently
+    // overwritten by Map.set; surface that as a counter so admins can
+    // see and dedupe at source. Per dispatch
+    // dispatch_cpo_sync_phone_normalize_fix_20260426.md.
+    expect(result.phoneCollisions).toBe(1)
+  })
+
+  it('exposes joinedTotal = totalRows - skippedNotJoined', async () => {
+    mockFetchSheet1RawRows.mockResolvedValueOnce([
+      { 'Full Name': 'A', Email: 'a@x.com', 'Phone number': '07911 123456', Status: 'Joined' },
+      { 'Full Name': 'B', Email: 'b@x.com', 'Phone number': '07911 123457', Status: 'Pending' },
+      { 'Full Name': 'C', Email: 'c@x.com', 'Phone number': '07911 123458', Status: 'rejected' },
+    ])
+    mockQuery.mockResolvedValue({ rowCount: 1 })
+
+    const result = await syncMembersFromSheet()
+    expect(result.totalRows).toBe(3)
+    expect(result.skippedNotJoined).toBe(2)
+    expect(result.joinedTotal).toBe(1)
+    expect(result.phoneCollisions).toBe(0)
+  })
+
+  it('recovers an international number stored without leading + (was a phoneFailed)', async () => {
+    // Real example from .reports/2026-04-25-cpo-sync-members-actionable.md
+    // (row 47, Anuj Gupta, India). Pre-fix this returned phoneFailed=1;
+    // post-fix it normalizes via the prepend-+ heuristic.
+    mockFetchSheet1RawRows.mockResolvedValueOnce([
+      {
+        'Full Name': 'Anuj Gupta',
+        Email: 'anujgupta82@gmail.com',
+        'Phone number': '918826955500',
+        Status: 'Joined',
+      },
+    ])
+    mockQuery.mockResolvedValue({ rowCount: 1 })
+
+    const result = await syncMembersFromSheet()
+    expect(result.upserted).toBe(1)
+    expect(result.phoneFailed).toBe(0)
+
+    const upsertCalls = mockQuery.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO cpo_connect.members'),
+    )
+    const [phones] = upsertCalls[0][1] as [string[], string[], Array<string | null>]
+    expect(phones).toEqual(['+918826955500'])
   })
 
   it('matches Status case-insensitively (lowercase `joined`)', async () => {

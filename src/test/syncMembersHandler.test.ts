@@ -23,8 +23,10 @@ describe('syncMembersHandler', () => {
     mockSync.mockResolvedValueOnce({
       totalRows: 441,
       skippedNotJoined: 12,
+      joinedTotal: 429,
       nameBlank: 0,
       phoneFailed: 2,
+      phoneCollisions: 0,
       upserted: 427,
     })
     const req = {} as unknown as Request
@@ -37,8 +39,10 @@ describe('syncMembersHandler', () => {
     expect(res.json).toHaveBeenCalledWith({
       totalRows: 441,
       skippedNotJoined: 12,
+      joinedTotal: 429,
       nameBlank: 0,
       phoneFailed: 2,
+      phoneCollisions: 0,
       upserted: 427,
     })
   })

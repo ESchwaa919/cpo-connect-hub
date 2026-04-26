@@ -10,6 +10,22 @@ export function normalizePhone(
   if (!raw) return null
   const cleaned = raw.replace(/^~\s*/, '').trim()
   if (!cleaned) return null
+
+  // International-without-`+` recovery. Sheet1 historically stores foreign
+  // numbers as bare digit strings (e.g. "918826955500" for an Indian
+  // mobile). With defaultCountry=GB, libphonenumber treats those as UK
+  // national numbers and rejects them. Try prepending '+' first; if it
+  // parses to a valid international number, use that. Skip when the
+  // string starts with '0' (UK trunk prefix) so UK mobiles continue to
+  // flow through the GB default-country path unchanged. See
+  // .reports/2026-04-25-cpo-sync-members-actionable.md for the 38-row
+  // analysis behind this heuristic.
+  const noWs = cleaned.replace(/\s/g, '')
+  if (/^\d{10,}$/.test(noWs) && !noWs.startsWith('0')) {
+    const intl = parsePhoneNumberFromString('+' + noWs)
+    if (intl?.isValid()) return intl.format('E.164')
+  }
+
   const parsed = parsePhoneNumberFromString(cleaned, defaultCountry)
   if (!parsed || !parsed.isValid()) return null
   return parsed.format('E.164')
