@@ -11,8 +11,10 @@ export interface MemberRow {
 export interface SyncResult {
   totalRows: number
   skippedNotJoined: number
+  joinedTotal: number
   nameBlank: number
   phoneFailed: number
+  phoneCollisions: number
   upserted: number
 }
 
@@ -29,8 +31,10 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
   const result: SyncResult = {
     totalRows: rows.length,
     skippedNotJoined: 0,
+    joinedTotal: 0,
     nameBlank: 0,
     phoneFailed: 0,
+    phoneCollisions: 0,
     upserted: 0,
   }
 
@@ -87,8 +91,10 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
     }
 
     const email = (row['Email'] ?? '').trim() || null
+    if (dedupedByPhone.has(phone)) result.phoneCollisions += 1
     dedupedByPhone.set(phone, { phone, displayName: safeName, email })
   }
+  result.joinedTotal = result.totalRows - result.skippedNotJoined
   const valid = Array.from(dedupedByPhone.values())
 
   // Single bulk upsert via unnest() — one round-trip instead of N.
@@ -117,7 +123,7 @@ export async function syncMembersFromSheet(): Promise<SyncResult> {
   }
 
   console.log(
-    `[members-sync] total=${result.totalRows} upserted=${result.upserted} skippedNotJoined=${result.skippedNotJoined} nameBlank=${result.nameBlank} phoneFailed=${result.phoneFailed}`,
+    `[members-sync] total=${result.totalRows} joinedTotal=${result.joinedTotal} upserted=${result.upserted} skippedNotJoined=${result.skippedNotJoined} nameBlank=${result.nameBlank} phoneFailed=${result.phoneFailed} phoneCollisions=${result.phoneCollisions}`,
   )
   return result
 }

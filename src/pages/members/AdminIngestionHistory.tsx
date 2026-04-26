@@ -43,10 +43,12 @@ async function fetchIngestionHistory(): Promise<IngestionHistoryResponse> {
 
 interface SyncMembersResponse {
   totalRows: number
+  joinedTotal: number
   upserted: number
   skippedNotJoined: number
   nameBlank: number
   phoneFailed: number
+  phoneCollisions: number
 }
 
 async function postSyncMembers(): Promise<SyncMembersResponse> {
@@ -150,15 +152,26 @@ export default function AdminIngestionHistory() {
             )}
           </Button>
           {syncResult && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <CheckCircle2
-                className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
-                aria-hidden="true"
-              />
-              Synced {syncResult.upserted} of {syncResult.totalRows} rows
-              {syncResult.phoneFailed > 0 &&
-                ` · ${syncResult.phoneFailed} phone-normalize failures`}
-            </span>
+            <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2
+                  className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden="true"
+                />
+                Synced {syncResult.upserted} of {syncResult.joinedTotal} joined
+                {' '}(out of {syncResult.totalRows} sheet rows ·{' '}
+                {syncResult.skippedNotJoined} not Joined, ignored)
+              </span>
+              {(syncResult.phoneFailed > 0 ||
+                syncResult.phoneCollisions > 0 ||
+                syncResult.nameBlank > 0) && (
+                <span className="pl-5">
+                  Failures: {syncResult.phoneFailed} phone-normalize ·{' '}
+                  {syncResult.phoneCollisions} phone-collision ·{' '}
+                  {syncResult.nameBlank} name-blank
+                </span>
+              )}
+            </div>
           )}
           {syncError && (
             <span className="flex items-center gap-1.5 text-xs text-destructive">
