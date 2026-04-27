@@ -11,7 +11,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Mail, ArrowLeft, Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 
-type ModalState = "email" | "sent" | "not-member" | "error"
+// Three-state modal: email entry, single neutral confirmation
+// (regardless of membership status), and error. The previous design had
+// separate "sent" and "not-member" states whose copy revealed whether
+// the submitted email belonged to a CPO member — exploitable for
+// enumeration. Server now returns identical { code: 'check_email' }
+// either way; this UI mirrors that. See dispatch
+// dispatch_cpo_magic_link_enumeration_fix_20260427.md.
+type ModalState = "email" | "submitted" | "error"
 
 interface LoginModalProps {
   open: boolean
@@ -58,12 +65,8 @@ export function LoginModal({
 
     setIsSubmitting(true)
     try {
-      const result = await login(email.trim())
-      if (result.memberStatus === "not_found") {
-        setState("not-member")
-      } else {
-        setState("sent")
-      }
+      await login(email.trim())
+      setState("submitted")
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong"
@@ -109,13 +112,15 @@ export function LoginModal({
           </>
         )}
 
-        {state === "sent" && (
+        {state === "submitted" && (
           <>
             <DialogHeader>
-              <DialogTitle className="font-display">Check your inbox</DialogTitle>
+              <DialogTitle className="font-display">Check your email</DialogTitle>
               <DialogDescription>
-                We've sent a magic link to{" "}
-                <span className="font-medium text-foreground">{email}</span>.
+                If <span className="font-medium text-foreground">{email}</span>{" "}
+                is associated with a CPO Connect member account, you'll receive
+                a magic link to sign in. If you're not yet a member, you'll
+                receive an invitation to apply.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col items-center space-y-4 py-4">
@@ -123,8 +128,8 @@ export function LoginModal({
                 <CheckCircle2 className="h-8 w-8 text-primary" />
               </div>
               <p className="text-sm text-muted-foreground text-center">
-                The link will expire in 15 minutes. If you don't see the email,
-                check your spam folder.
+                Either way, the email arrives in a few minutes — check your spam
+                folder if you don't see it.
               </p>
             </div>
             <Button
@@ -138,49 +143,6 @@ export function LoginModal({
               <ArrowLeft className="mr-2 h-4 w-4" />
               Try a different email
             </Button>
-          </>
-        )}
-
-        {state === "not-member" && (
-          <>
-            <DialogHeader>
-              <DialogTitle className="font-display">We don't recognise that email</DialogTitle>
-              <DialogDescription>
-                <span className="font-medium text-foreground">{email}</span>{" "}
-                isn't associated with a CPO Connect membership.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col items-center space-y-4 py-4">
-              <div className="rounded-full bg-destructive/10 p-3">
-                <Mail className="h-8 w-8 text-destructive" />
-              </div>
-              <p className="text-sm text-muted-foreground text-center">
-                CPO Connect is a members-only community. If you'd like to join,
-                submit an application.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Button className="w-full" asChild>
-                <a
-                  href="https://cpoconnect.fillout.com/application"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Apply to Join
-                </a>
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setState("email")
-                  setEmail("")
-                }}
-                className="w-full"
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Try a different email
-              </Button>
-            </div>
           </>
         )}
 

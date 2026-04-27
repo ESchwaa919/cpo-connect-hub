@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { sign } from 'cookie-signature'
 import pool from '../db.ts'
 import { lookupMember } from '../services/sheets.ts'
-import { sendMagicLink } from '../services/email.ts'
+import { sendMagicLink, sendApplyInvite } from '../services/email.ts'
 import { createRateLimiter } from '../services/rate-limit.ts'
 import { requireAuth } from '../middleware/auth.ts'
 import { isAdminEmail } from '../middleware/requireAdmin.ts'
@@ -50,36 +50,53 @@ function getClientIp(req: Express.Request & { headers: Record<string, string | s
 // ---------------------------------------------------------------------------
 // POST /request — send magic link
 // ---------------------------------------------------------------------------
+// Single neutral response shape on every branch. Returning the same
+// JSON regardless of lookup outcome closes the enumeration vector that
+// the frontend's "Check your inbox" vs "We don't recognise that email"
+// branching exposed. The differentiation lives in the inbox: members
+// receive sendMagicLink; non-members receive sendApplyInvite. See
+// dispatch_cpo_magic_link_enumeration_fix_20260427.md.
+const NEUTRAL_RESPONSE = { code: 'check_email' as const }
+
 router.post('/request', async (req, res) => {
   try {
     const clientIp = getClientIp(req)
     const ipCheck = ipLimiter.check(`ip:${clientIp}`)
     if (!ipCheck.allowed) {
-      // Still return 200 to prevent enumeration
-      res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
+      res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
     const email = (req.body?.email as string ?? '').trim().toLowerCase()
     if (!email) {
-      res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
+      res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
     const emailCheck = emailLimiter.check(`email:${email}`)
     if (!emailCheck.allowed) {
-      res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
+      res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
     const member = await lookupMember(email)
+    const isJoined = !!member && member.status.toLowerCase() === 'joined'
 
-    if (!member || member.status.toLowerCase() !== 'joined') {
-      res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
+    if (!isJoined) {
+      // Non-member (or status != joined): send the apply-to-join invite.
+      // Swallow send errors so a transient Resend failure doesn't differentiate
+      // member from non-member through the response shape.
+      sendApplyInvite(email).catch((err: unknown) => {
+        console.error(
+          '[request] sendApplyInvite failed:',
+          (err as Error).message,
+        )
+      })
+      res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
-    // Generate token and store in DB
+    // Joined member — proceed with the existing magic-link flow.
     const token = crypto.randomBytes(32).toString('hex')
     const insertResult = await pool.query(
       'INSERT INTO cpo_connect.magic_link_tokens (email, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'15 minutes\') RETURNING id, expires_at',
@@ -97,7 +114,7 @@ router.post('/request', async (req, res) => {
 
     // Send email
     console.log('[request] Sending magic link email to:', email)
-    await sendMagicLink({ email, token, name: member.name })
+    await sendMagicLink({ email, token, name: member!.name })
     console.log('[request] Email sent successfully')
 
     // Best-effort cleanup of expired tokens and sessions (fire-and-forget)
@@ -106,11 +123,11 @@ router.post('/request', async (req, res) => {
 
     trackEvent(AnalyticsEvent.LOGIN_REQUEST, email)
 
-    res.status(200).json({ code: 'magic_link_sent', memberStatus: 'sent' })
+    res.status(200).json(NEUTRAL_RESPONSE)
   } catch (err) {
     console.error('POST /request error:', (err as Error).message)
-    // Always return 200 to prevent email enumeration
-    res.status(200).json({ code: 'magic_link_sent', memberStatus: 'not_found' })
+    // Always return 200 with the neutral shape to prevent enumeration.
+    res.status(200).json(NEUTRAL_RESPONSE)
   }
 })
 
