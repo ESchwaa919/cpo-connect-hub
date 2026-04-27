@@ -58,23 +58,80 @@ function getClientIp(req: Express.Request & { headers: Record<string, string | s
 // dispatch_cpo_magic_link_enumeration_fix_20260427.md.
 const NEUTRAL_RESPONSE = { code: 'check_email' as const }
 
+// Both branches kick off email work in the background and the handler
+// awaits a fixed equal-time delay before responding. This closes the
+// SECONDARY enumeration vector that codex review caught: previously the
+// member branch awaited the token DB insert + Resend send while the
+// non-member branch returned immediately, so an attacker could classify
+// the email by response time alone. With fire-and-forget + a constant
+// floor, both branches respond on the same wall-clock window.
+//
+// Tunable via REQUEST_EQUAL_TIME_FLOOR_MS for tests; production keeps
+// the default 200ms floor + 0–100ms jitter.
+const EQUAL_TIME_FLOOR_MS = Number(
+  process.env.REQUEST_EQUAL_TIME_FLOOR_MS ?? 200,
+)
+function equalTimeDelay(): Promise<void> {
+  if (EQUAL_TIME_FLOOR_MS <= 0) return Promise.resolve()
+  const ms = EQUAL_TIME_FLOOR_MS + Math.random() * 100
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Member-branch background work. Errors are caught + logged; the
+// /request response does NOT depend on this completing.
+async function dispatchMagicLink(
+  email: string,
+  name: string,
+): Promise<void> {
+  const token = crypto.randomBytes(32).toString('hex')
+  const insertResult = await pool.query(
+    'INSERT INTO cpo_connect.magic_link_tokens (email, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'15 minutes\') RETURNING id, expires_at',
+    [email, token],
+  )
+  const inserted = insertResult.rows[0] as { id: string; expires_at: string }
+  console.log(
+    '[request] Token inserted — id:',
+    inserted.id,
+    'expires_at:',
+    inserted.expires_at,
+    'token prefix:',
+    token.slice(0, 8) + '...',
+  )
+
+  await sendMagicLink({ email, token, name })
+  console.log('[request] Magic link email sent to:', email)
+
+  // Best-effort cleanup of expired tokens and sessions
+  pool
+    .query('DELETE FROM cpo_connect.magic_link_tokens WHERE expires_at < NOW()')
+    .catch(() => {})
+  pool
+    .query('DELETE FROM cpo_connect.sessions WHERE expires_at < NOW()')
+    .catch(() => {})
+
+  trackEvent(AnalyticsEvent.LOGIN_REQUEST, email)
+}
+
 router.post('/request', async (req, res) => {
   try {
     const clientIp = getClientIp(req)
     const ipCheck = ipLimiter.check(`ip:${clientIp}`)
     if (!ipCheck.allowed) {
+      await equalTimeDelay()
       res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
     const email = (req.body?.email as string ?? '').trim().toLowerCase()
     if (!email) {
+      await equalTimeDelay()
       res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
 
     const emailCheck = emailLimiter.check(`email:${email}`)
     if (!emailCheck.allowed) {
+      await equalTimeDelay()
       res.status(200).json(NEUTRAL_RESPONSE)
       return
     }
@@ -82,51 +139,29 @@ router.post('/request', async (req, res) => {
     const member = await lookupMember(email)
     const isJoined = !!member && member.status.toLowerCase() === 'joined'
 
-    if (!isJoined) {
-      // Non-member (or status != joined): send the apply-to-join invite.
-      // Swallow send errors so a transient Resend failure doesn't differentiate
-      // member from non-member through the response shape.
+    // Both branches fire-and-forget so response timing is bounded by the
+    // equal-time delay rather than DB+Resend latency.
+    if (isJoined) {
+      dispatchMagicLink(email, member!.name).catch((err: unknown) => {
+        console.error(
+          '[request] dispatchMagicLink failed:',
+          (err as Error).message,
+        )
+      })
+    } else {
       sendApplyInvite(email).catch((err: unknown) => {
         console.error(
           '[request] sendApplyInvite failed:',
           (err as Error).message,
         )
       })
-      res.status(200).json(NEUTRAL_RESPONSE)
-      return
     }
 
-    // Joined member — proceed with the existing magic-link flow.
-    const token = crypto.randomBytes(32).toString('hex')
-    const insertResult = await pool.query(
-      'INSERT INTO cpo_connect.magic_link_tokens (email, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'15 minutes\') RETURNING id, expires_at',
-      [email, token]
-    )
-    const inserted = insertResult.rows[0] as { id: string; expires_at: string }
-    console.log('[request] Token inserted — id:', inserted.id, 'expires_at:', inserted.expires_at, 'token prefix:', token.slice(0, 8) + '...')
-
-    // Verify token can be read back immediately
-    const verifyInsert = await pool.query(
-      'SELECT id FROM cpo_connect.magic_link_tokens WHERE token = $1',
-      [token]
-    )
-    console.log('[request] Verify read-back — rows:', verifyInsert.rows.length)
-
-    // Send email
-    console.log('[request] Sending magic link email to:', email)
-    await sendMagicLink({ email, token, name: member!.name })
-    console.log('[request] Email sent successfully')
-
-    // Best-effort cleanup of expired tokens and sessions (fire-and-forget)
-    pool.query('DELETE FROM cpo_connect.magic_link_tokens WHERE expires_at < NOW()').catch(() => {})
-    pool.query('DELETE FROM cpo_connect.sessions WHERE expires_at < NOW()').catch(() => {})
-
-    trackEvent(AnalyticsEvent.LOGIN_REQUEST, email)
-
+    await equalTimeDelay()
     res.status(200).json(NEUTRAL_RESPONSE)
   } catch (err) {
     console.error('POST /request error:', (err as Error).message)
-    // Always return 200 with the neutral shape to prevent enumeration.
+    await equalTimeDelay()
     res.status(200).json(NEUTRAL_RESPONSE)
   }
 })
