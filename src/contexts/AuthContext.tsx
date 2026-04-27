@@ -10,9 +10,13 @@ interface User {
   isAdmin: boolean
 }
 
+// Login resolves with no membership signal — the server responds with
+// the same `{ code: 'check_email' }` shape regardless of lookup result
+// to defeat enumeration. Differentiation happens in the inbox (magic
+// link vs apply-to-join invite). See dispatch
+// dispatch_cpo_magic_link_enumeration_fix_20260427.md.
 interface LoginResult {
-  code: string
-  memberStatus: 'sent' | 'not_found'
+  code: 'check_email'
 }
 
 interface AuthContextType {
