@@ -44,7 +44,7 @@ describe('SEO — index.html meta tags', () => {
     expect(html).toMatch(/<meta\s+property="og:title"\s+content="[^"]+"/i)
     expect(html).toMatch(/<meta\s+property="og:description"\s+content="[^"]+"/i)
     expect(html).toMatch(/<meta\s+property="og:image"\s+content="https:\/\/[^"]+"/i)
-    expect(html).toMatch(/<meta\s+property="og:url"\s+content="https:\/\/cpoconnect\.club\/?"/i)
+    expect(html).toMatch(/<meta\s+property="og:url"\s+content="https:\/\/cpoconnect\.club\/"/i)
     expect(html).toMatch(/<meta\s+property="og:type"\s+content="[^"]+"/i)
   })
 
