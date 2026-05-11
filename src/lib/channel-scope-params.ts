@@ -1,7 +1,7 @@
 // Canonical channel ids — must match cpo_connect.chat_messages.channel
 // values in the DB. `leadership_culture` is the historical id even
 // though we display it as "Leadership & Culture".
-export const ALL_CHANNELS = ['general', 'ai', 'leadership_culture'] as const
+export const ALL_CHANNELS = ['general', 'ai', 'jobs', 'leadership_culture'] as const
 export type ChannelId = (typeof ALL_CHANNELS)[number]
 
 export type ChannelScopeValue =
@@ -11,6 +11,7 @@ export type ChannelScopeValue =
 export const CHANNEL_LABELS: Record<ChannelId, string> = {
   general: 'General',
   ai: 'AI',
+  jobs: 'Jobs',
   leadership_culture: 'Leadership & Culture',
 }
 

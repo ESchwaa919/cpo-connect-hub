@@ -42,7 +42,7 @@ describe('parseChannelScopeParam', () => {
 
   it('collapses a subset equal to every channel back to the all sentinel', () => {
     const v = parseChannelScopeParam(
-      new URLSearchParams('channels=general,ai,leadership_culture'),
+      new URLSearchParams('channels=general,ai,jobs,leadership_culture'),
     )
     expect(v.mode).toBe('all')
   })
@@ -77,10 +77,10 @@ describe('serializeChannelScopeParam', () => {
 })
 
 describe('labelForChannelScope', () => {
-  it('returns "All 3 channels" for the all-channels sentinel', () => {
+  it('returns "All 4 channels" for the all-channels sentinel', () => {
     expect(
       labelForChannelScope({ mode: 'all', ids: [...ALL_CHANNELS] }),
-    ).toBe('All 3 channels')
+    ).toBe('All 4 channels')
   })
   it('returns "{Channel} only" for a single-channel subset', () => {
     expect(
