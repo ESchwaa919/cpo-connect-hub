@@ -3,7 +3,7 @@
 // ChannelsSection.tsx and src/data/insights/* intentionally keep their
 // own unrelated channel lists and must not be refactored against this.
 
-export type ChatChannelId = 'ai' | 'general' | 'leadership_culture'
+export type ChatChannelId = 'ai' | 'general' | 'jobs' | 'leadership_culture'
 
 export interface ChatChannel {
   id: ChatChannelId
@@ -21,6 +21,11 @@ export const CHAT_CHANNELS: readonly ChatChannel[] = [
     id: 'ai',
     label: 'AI',
     description: 'AI tooling, debates, and experiments',
+  },
+  {
+    id: 'jobs',
+    label: 'Jobs',
+    description: 'Hiring posts and job opportunities',
   },
   {
     id: 'leadership_culture',

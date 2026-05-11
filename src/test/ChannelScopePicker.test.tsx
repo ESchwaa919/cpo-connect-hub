@@ -19,8 +19,8 @@ function renderPicker(
 
 describe('ChannelScopePicker — trigger label', () => {
   it('shows "All 3 channels" label when value is the all sentinel', () => {
-    renderPicker({ mode: 'all', ids: ['general', 'ai', 'leadership_culture'] })
-    const trigger = screen.getByRole('button', { name: /all 3 channels/i })
+    renderPicker({ mode: 'all', ids: ['general', 'ai', 'jobs', 'leadership_culture'] })
+    const trigger = screen.getByRole('button', { name: /all 4 channels/i })
     expect(trigger).toBeInTheDocument()
   })
 
@@ -41,19 +41,19 @@ describe('ChannelScopePicker — trigger label', () => {
 
 describe('ChannelScopePicker — multi-select mode (default)', () => {
   it('is collapsed by default (menu not rendered)', () => {
-    renderPicker({ mode: 'all', ids: ['general', 'ai', 'leadership_culture'] })
+    renderPicker({ mode: 'all', ids: ['general', 'ai', 'jobs', 'leadership_culture'] })
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('opens the menu when the trigger is clicked', () => {
-    renderPicker({ mode: 'all', ids: ['general', 'ai', 'leadership_culture'] })
-    fireEvent.click(screen.getByRole('button', { name: /all 3 channels/i }))
+    renderPicker({ mode: 'all', ids: ['general', 'ai', 'jobs', 'leadership_culture'] })
+    fireEvent.click(screen.getByRole('button', { name: /all 4 channels/i }))
     expect(screen.getByRole('menu')).toBeInTheDocument()
   })
 
   it('renders the "All channels" option + one item per channel', () => {
-    renderPicker({ mode: 'all', ids: ['general', 'ai', 'leadership_culture'] })
-    fireEvent.click(screen.getByRole('button', { name: /all 3 channels/i }))
+    renderPicker({ mode: 'all', ids: ['general', 'ai', 'jobs', 'leadership_culture'] })
+    fireEvent.click(screen.getByRole('button', { name: /all 4 channels/i }))
     expect(
       screen.getByRole('menuitemcheckbox', { name: /all channels/i }),
     ).toBeInTheDocument()
@@ -64,13 +64,16 @@ describe('ChannelScopePicker — multi-select mode (default)', () => {
       screen.getByRole('menuitemcheckbox', { name: /^ai$/i }),
     ).toBeInTheDocument()
     expect(
+      screen.getByRole('menuitemcheckbox', { name: /^jobs$/i }),
+    ).toBeInTheDocument()
+    expect(
       screen.getByRole('menuitemcheckbox', { name: /^leadership & culture$/i }),
     ).toBeInTheDocument()
   })
 
   it('marks all channel items as checked when value mode is "all"', () => {
-    renderPicker({ mode: 'all', ids: ['general', 'ai', 'leadership_culture'] })
-    fireEvent.click(screen.getByRole('button', { name: /all 3 channels/i }))
+    renderPicker({ mode: 'all', ids: ['general', 'ai', 'jobs', 'leadership_culture'] })
+    fireEvent.click(screen.getByRole('button', { name: /all 4 channels/i }))
     const all = screen.getByRole('menuitemcheckbox', { name: /all channels/i })
     const general = screen.getByRole('menuitemcheckbox', { name: /^general$/i })
     expect(all).toHaveAttribute('aria-checked', 'true')
@@ -96,16 +99,16 @@ describe('ChannelScopePicker — multi-select mode (default)', () => {
     )
     expect(onChange).toHaveBeenCalledWith({
       mode: 'all',
-      ids: ['general', 'ai', 'leadership_culture'],
+      ids: ['general', 'ai', 'jobs', 'leadership_culture'],
     })
   })
 
   it('toggling a single channel from all-mode produces a subset with just that channel', () => {
     const { onChange } = renderPicker({
       mode: 'all',
-      ids: ['general', 'ai', 'leadership_culture'],
+      ids: ['general', 'ai', 'jobs', 'leadership_culture'],
     })
-    fireEvent.click(screen.getByRole('button', { name: /all 3 channels/i }))
+    fireEvent.click(screen.getByRole('button', { name: /all 4 channels/i }))
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /^ai$/i }))
     expect(onChange).toHaveBeenCalledWith({ mode: 'subset', ids: ['ai'] })
   })
@@ -123,15 +126,15 @@ describe('ChannelScopePicker — multi-select mode (default)', () => {
   it('toggling every channel on collapses back to the all sentinel', () => {
     const { onChange } = renderPicker({
       mode: 'subset',
-      ids: ['general', 'ai'],
+      ids: ['general', 'ai', 'jobs'],
     })
-    fireEvent.click(screen.getByRole('button', { name: /general \+ ai/i }))
+    fireEvent.click(screen.getByRole('button', { name: /3 channels/i }))
     fireEvent.click(
       screen.getByRole('menuitemcheckbox', { name: /^leadership & culture$/i }),
     )
     expect(onChange).toHaveBeenCalledWith({
       mode: 'all',
-      ids: ['general', 'ai', 'leadership_culture'],
+      ids: ['general', 'ai', 'jobs', 'leadership_culture'],
     })
   })
 
