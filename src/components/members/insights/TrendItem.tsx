@@ -33,7 +33,7 @@ export function TrendItem({
       </span>
       <div className="flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-purple-300">{title}</span>
+          <span className="font-semibold text-purple-700 dark:text-purple-300">{title}</span>
           {tags?.map((tag) => (
             <Badge
               key={tag.label}

@@ -274,7 +274,7 @@ export default function January2026() {
     <div className="space-y-8">
       {/* AI channel stats */}
       <div>
-        <h3 className="text-lg font-semibold text-purple-300 mb-4">
+        <h3 className="text-lg font-semibold text-purple-700 dark:text-purple-300 mb-4">
           // AI Channel
         </h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-6">

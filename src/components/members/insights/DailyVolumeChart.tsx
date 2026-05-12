@@ -20,7 +20,7 @@ export function DailyVolumeChart({
   return (
     <Card className="bg-card/50 border-border/50 backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className="text-base text-purple-300">
+        <CardTitle className="text-base text-purple-700 dark:text-purple-300">
           Daily Message Volume
         </CardTitle>
       </CardHeader>
