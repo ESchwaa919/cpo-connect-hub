@@ -22,9 +22,9 @@ const FAQ: FaqItem[] = [
   },
   {
     question:
-      'How is CPO Connect different from other CPO communities (CPO Circles, CPO Track, PepTalks)?',
+      'How is CPO Connect different from other CPO communities?',
     answer:
-      'CPO Connect is members-led and trust-first. There are no paid tiers, no scripted programmes, and no sales agendas — just senior product leaders talking honestly with each other. Other communities offer structured curricula, executive education, or paid mastermind formats; CPO Connect is the alternative space where contribution matters more than cash and conversations stay candid.',
+      'CPO Connect is members-led and trust-first. There are no paid tiers, no scripted programmes, and no sales agendas — just senior product leaders talking honestly with each other. Other CPO communities offer structured curricula, executive education, or paid mastermind formats; CPO Connect is the alternative space where contribution matters more than cash and conversations stay candid.',
   },
   {
     question: 'How do I join?',
