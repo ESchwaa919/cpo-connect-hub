@@ -17,9 +17,10 @@ const Footer = () => {
             </div>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#manifesto" className="hover:text-foreground transition-colors">Manifesto</a>
-            <a href="#events" className="hover:text-foreground transition-colors">Events</a>
-            <a href="#join" className="hover:text-foreground transition-colors">Join</a>
+            <a href="/#manifesto" className="hover:text-foreground transition-colors">Manifesto</a>
+            <a href="/#events" className="hover:text-foreground transition-colors">Events</a>
+            <a href="/#join" className="hover:text-foreground transition-colors">Join</a>
+            <a href="/faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="mailto:cpoconnect@googlegroups.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </div>

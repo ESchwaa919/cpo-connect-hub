@@ -10,6 +10,7 @@ import { MembersLayout } from "@/components/members/MembersLayout"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { WhatsTalkedErrorFallback } from "@/components/members/whats-talked/WhatsTalkedErrorFallback"
 import Index from "@/pages/Index"
+import Faq from "@/pages/Faq"
 import NotFound from "@/pages/NotFound"
 import ChatInsights from "@/pages/members/ChatInsights"
 import Directory from "@/pages/members/Directory"
@@ -35,6 +36,7 @@ function App() {
             <AuthProvider>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/faq" element={<Faq />} />
               <Route
                 path="/members"
                 element={
