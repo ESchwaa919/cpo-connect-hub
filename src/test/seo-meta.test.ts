@@ -66,6 +66,27 @@ describe('SEO — index.html meta tags', () => {
     expect(parsed.name).toBe('CPO Connect')
     expect(parsed.url).toBe('https://cpoconnect.club/')
   })
+
+  it('Organization JSON-LD includes a sameAs LinkedIn link (entity disambiguation)', () => {
+    const match = html.match(
+      /<script\s+type="application\/ld\+json">\s*([\s\S]+?)\s*<\/script>/i,
+    )
+    const parsed = JSON.parse(match![1])
+    expect(Array.isArray(parsed.sameAs), 'sameAs must be an array').toBe(true)
+    expect(
+      parsed.sameAs.some((s: string) => s.includes('linkedin.com')),
+      'sameAs should include a LinkedIn URL',
+    ).toBe(true)
+  })
+
+  it('has a WebSite JSON-LD block alongside Organization', () => {
+    const allLdJson = Array.from(
+      html.matchAll(
+        /<script\s+type="application\/ld\+json">\s*([\s\S]+?)\s*<\/script>/gi,
+      ),
+    ).map((m) => JSON.parse(m[1]))
+    expect(allLdJson.some((b) => b['@type'] === 'WebSite')).toBe(true)
+  })
 })
 
 describe('SEO — robots.txt', () => {
@@ -88,5 +109,11 @@ describe('SEO — sitemap.xml', () => {
     expect(xml).toMatch(/<\?xml\s+version="1\.0"/)
     expect(xml).toMatch(/<urlset\s+xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9"/)
     expect(xml).toMatch(/<loc>https:\/\/cpoconnect\.club\/<\/loc>/)
+  })
+
+  it('lists the /faq page', () => {
+    const sitemapPath = resolve(root, 'public/sitemap.xml')
+    const xml = readFileSync(sitemapPath, 'utf8')
+    expect(xml).toMatch(/<loc>https:\/\/cpoconnect\.club\/faq<\/loc>/)
   })
 })

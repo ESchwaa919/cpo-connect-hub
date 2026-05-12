@@ -18,4 +18,23 @@ if (typeof window !== 'undefined') {
       dispatchEvent: () => false,
     }),
   })
+
+  // jsdom does not implement IntersectionObserver; framer-motion's
+  // `whileInView` uses it. Stub with a no-op so any component using
+  // motion viewport triggers can render under tests.
+  if (typeof globalThis.IntersectionObserver === 'undefined') {
+    class IntersectionObserverStub {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return []
+      }
+    }
+    Object.defineProperty(globalThis, 'IntersectionObserver', {
+      writable: true,
+      configurable: true,
+      value: IntersectionObserverStub,
+    })
+  }
 }
