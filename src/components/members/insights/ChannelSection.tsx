@@ -35,7 +35,7 @@ export function ChannelSection({ data }: ChannelSectionProps) {
       <SentimentChart data={data.sentiment} color={data.sentimentColor} />
 
       <div className="space-y-3">
-        <h3 className="text-lg font-semibold text-purple-300">
+        <h3 className="text-lg font-semibold text-purple-700 dark:text-purple-300">
           Key Trends &amp; Themes
         </h3>
         {data.trends.map((trend, i) => (
