@@ -3,7 +3,7 @@ import { Calendar, MapPin, Clock } from "lucide-react";
 
 const JOIN_URL = "https://cpoconnect.fillout.com/application";
 
-const events = [
+const events: { title: string; date: string; location: string; time: string; status: "Past" | "Upcoming" }[] = [
   {
     title: "CPO Connect London Launch",
     date: "22 January 2025",
@@ -16,7 +16,7 @@ const events = [
     date: "29 April 2025",
     location: "AKQA, London",
     time: "6:00 PM – 8:45 PM",
-    status: "Upcoming" as const,
+    status: "Past" as const,
   },
 ];
 
