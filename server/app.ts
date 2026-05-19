@@ -4,6 +4,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import authRouter from './routes/auth.ts'
 import membersRouter from './routes/members.ts'
+import eventsRouter from './routes/events.ts'
 import { chatMemberRouter, chatAdminRouter } from './routes/chat.ts'
 import { canonicalHostRedirect } from './middleware/canonicalHost.ts'
 
@@ -59,6 +60,7 @@ export function createApp(options: { serveStatic?: boolean } = {}): Application 
 
   app.use('/api/auth', authRouter)
   app.use('/api/members', membersRouter)
+  app.use('/api/events', eventsRouter)
 
   // WETA chat endpoints. The ingest route's 50MB body parser is mounted
   // INSIDE chatAdminRouter, after requireIngestAuth, so unauthenticated

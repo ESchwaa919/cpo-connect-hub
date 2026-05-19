@@ -2,7 +2,6 @@ import { motion } from "framer-motion";
 
 const founders = [
   { name: "Erik Schwartz", linkedin: "https://www.linkedin.com/in/eschwaa/", photo: "/founders/erik-schwartz.jpeg" },
-  { name: "Glynn Williams", linkedin: "https://www.linkedin.com/in/glynn-williams-1194983/", photo: "/founders/glynn-williams.jpeg" },
   { name: "Gokul Raju", linkedin: "https://www.linkedin.com/in/gokulraju/", photo: "/founders/gokul-raju.png" },
   { name: "Gregor Young", linkedin: "https://www.linkedin.com/in/gregoryoung/", photo: "/founders/gregor-young.jpeg" },
   { name: "James Engelbert", linkedin: "https://www.linkedin.com/in/jamesengelbert/", photo: "/founders/james-engelbert.jpeg" },
@@ -29,14 +28,14 @@ const FoundersSection = () => {
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-5 max-w-3xl mx-auto">
+        <div className="flex flex-wrap justify-center gap-5 max-w-3xl mx-auto">
           {founders.map((f, i) => (
             <motion.a
               key={f.name}
               href={f.linkedin}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex flex-col items-center text-center p-5 rounded-2xl border bg-card hover:shadow-lg hover:shadow-primary/5 transition-all duration-300"
+              className="group flex flex-col items-center text-center p-5 rounded-2xl border bg-card hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 basis-[calc(50%-0.625rem)] sm:basis-[calc(33.333%-0.834rem)]"
               initial={{ opacity: 0, y: 15 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
