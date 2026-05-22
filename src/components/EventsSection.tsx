@@ -75,9 +75,12 @@ const EventsSection = () => {
   // React Router's <Link to="/path#events"> updates history via
   // pushState and suppresses the browser's default anchor jump.
   // Re-implement the scroll-into-view ourselves when the hash matches.
+  // Using behavior: "auto" (instant) — matches native anchor-jump
+  // behavior and avoids Chrome silently dropping smooth scrolls that
+  // originate from a useEffect rather than a direct user gesture.
   useEffect(() => {
     if (hash !== "#events") return;
-    sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    sectionRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
   }, [hash]);
 
   useEffect(() => {
