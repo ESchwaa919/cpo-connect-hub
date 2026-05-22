@@ -26,3 +26,6 @@ dist-ssr
 
 # Brainstorming visual companion session files
 .superpowers/
+
+# Adversarial code review session artifacts
+.adversarial-review/

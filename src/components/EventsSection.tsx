@@ -90,7 +90,7 @@ const EventsSection = () => {
   }, []);
 
   return (
-    <section id="events" className="py-24 sm:py-32">
+    <section className="py-12 sm:py-16">
       <div className="container">
         <motion.div
           className="max-w-2xl mb-16"
