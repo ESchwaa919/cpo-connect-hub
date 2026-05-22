@@ -80,6 +80,11 @@ function stubFetch(routes: StubRoutes): ReturnType<typeof vi.fn> {
       }
       return askReply(next)
     }
+    if (url.startsWith('/api/events')) {
+      // EventsSection now mounts on this page; default to an empty
+      // events list so unrelated tests don't exercise the error path.
+      return jsonResponse({ events: [] })
+    }
     throw new Error(`Unexpected fetch: ${url}`)
   })
 }
