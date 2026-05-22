@@ -21,7 +21,6 @@ import logo from "@/assets/logo.png"
 const publicLinks = [
   { label: "Manifesto", href: "#manifesto" },
   { label: "Channels", href: "#channels" },
-  { label: "Events", href: "#events" },
   { label: "Founders", href: "#founders" },
 ]
 

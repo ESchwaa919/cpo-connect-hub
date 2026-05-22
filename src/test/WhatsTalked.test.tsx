@@ -578,6 +578,43 @@ describe('WhatsTalked error handling', () => {
     })
   })
 
+  it('renders the Luma events section beneath the chat surface', async () => {
+    // The events relocation: EventsSection now lives on /members/whats-talked.
+    // Mock /api/events with one fixture event and assert the heading appears.
+    const fixtureEvent = {
+      api_id: 'evt-1',
+      name: 'Test Meetup',
+      url: 'test-meetup',
+      cover_url: null,
+      start_at: '2026-06-15T18:00:00.000Z',
+      timezone: 'Europe/London',
+      location_type: 'offline',
+      city_state: 'London, UK',
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        if (url.startsWith('/api/members/profile')) {
+          return jsonResponse({})
+        }
+        if (url.startsWith('/api/chat/prompt-tiles')) {
+          return jsonResponse({ current: [], evergreen: [] })
+        }
+        if (url.startsWith('/api/events')) {
+          return jsonResponse({ events: [fixtureEvent] })
+        }
+        throw new Error(`Unexpected fetch: ${url}`)
+      }),
+    )
+    renderPage()
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: /Meet in person/i }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Test Meetup')).toBeInTheDocument()
+  })
+
   it('moves focus to the answer heading on every submission (including same-query resubmit)', async () => {
     vi.stubGlobal(
       'fetch',

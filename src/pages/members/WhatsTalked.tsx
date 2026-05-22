@@ -23,6 +23,7 @@ import {
   type ChannelScopeValue,
 } from '@/lib/channel-scope-params'
 import { useMemberProfile } from '@/hooks/useMemberProfile'
+import EventsSection from '@/components/EventsSection'
 
 const ASK_STALE_MS = 5 * 60 * 1000
 const TILES_STALE_MS = 60 * 60 * 1000
@@ -283,6 +284,8 @@ export default function WhatsTalked() {
           countdownRemaining={rateLimitWaitSec}
         />
       )}
+
+      <EventsSection />
     </div>
   )
 }
