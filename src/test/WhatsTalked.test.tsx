@@ -7,13 +7,13 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import WhatsTalked from '../pages/members/WhatsTalked'
 
-function renderPage() {
+function renderPage(initialEntry = '/members/whats-talked') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/members/whats-talked']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <WhatsTalked />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -612,12 +612,36 @@ describe('WhatsTalked error handling', () => {
         throw new Error(`Unexpected fetch: ${url}`)
       }),
     )
-    renderPage()
+    const { container } = renderPage()
 
     expect(
       await screen.findByRole('heading', { level: 2, name: /Meet in person/i }),
     ).toBeInTheDocument()
     expect(await screen.findByText('Test Meetup')).toBeInTheDocument()
+    // Anchor target — the members nav "Events" link relies on #events
+    // resolving to this section so the scroll-on-hash effect can find it.
+    expect(container.querySelector('section#events')).not.toBeNull()
+  })
+
+  it('scrolls EventsSection into view when the URL hash is #events', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        if (url.startsWith('/api/members/profile')) return jsonResponse({})
+        if (url.startsWith('/api/chat/prompt-tiles'))
+          return jsonResponse({ current: [], evergreen: [] })
+        if (url.startsWith('/api/events')) return jsonResponse({ events: [] })
+        throw new Error(`Unexpected fetch: ${url}`)
+      }),
+    )
+    renderPage('/members/whats-talked#events')
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled()
+    })
   })
 
   it('moves focus to the answer heading on every submission (including same-query resubmit)', async () => {

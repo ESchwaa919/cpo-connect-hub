@@ -28,6 +28,7 @@ const memberLinks = [
   { label: "Search Chat", to: "/members/whats-talked" },
   { label: "Chat Insights", to: "/members/chat-insights" },
   { label: "Directory", to: "/members/directory" },
+  { label: "Events", to: "/members/whats-talked#events" },
 ]
 
 export function Navbar() {

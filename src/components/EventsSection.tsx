@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Calendar, MapPin } from "lucide-react";
 
@@ -68,6 +69,16 @@ const EventCardSkeleton = () => (
 const EventsSection = () => {
   const [events, setEvents] = useState<LumaEvent[] | null>(null);
   const [error, setError] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const { hash } = useLocation();
+
+  // React Router's <Link to="/path#events"> updates history via
+  // pushState and suppresses the browser's default anchor jump.
+  // Re-implement the scroll-into-view ourselves when the hash matches.
+  useEffect(() => {
+    if (hash !== "#events") return;
+    sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [hash]);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,7 +101,7 @@ const EventsSection = () => {
   }, []);
 
   return (
-    <section className="py-12 sm:py-16">
+    <section ref={sectionRef} id="events" className="py-12 sm:py-16">
       <div className="container">
         <motion.div
           className="max-w-2xl mb-16"
