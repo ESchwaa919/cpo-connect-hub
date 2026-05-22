@@ -59,6 +59,23 @@ describe('Navbar — members area redesign', () => {
     expect(memberLinks[0]?.getAttribute('href')).toBe('/members/whats-talked')
   })
 
+  it('renders an Events link pointing at /members/whats-talked#events when authed on a members page', () => {
+    authedAs({ email: 'm@example.com', name: 'Test', isAdmin: false })
+    renderNav()
+    const events = screen.getByRole('link', { name: 'Events' })
+    expect(events).toHaveAttribute('href', '/members/whats-talked#events')
+  })
+
+  it('does NOT render an Events link in the public nav when signed out', () => {
+    authedAs(null)
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Navbar />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('link', { name: 'Events' })).toBeNull()
+  })
+
   it('does NOT render Profile as a top-nav link', () => {
     authedAs({ email: 'm@example.com', name: 'Test', isAdmin: false })
     renderNav()

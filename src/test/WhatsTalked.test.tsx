@@ -612,12 +612,16 @@ describe('WhatsTalked error handling', () => {
         throw new Error(`Unexpected fetch: ${url}`)
       }),
     )
-    renderPage()
+    const { container } = renderPage()
 
     expect(
       await screen.findByRole('heading', { level: 2, name: /Meet in person/i }),
     ).toBeInTheDocument()
     expect(await screen.findByText('Test Meetup')).toBeInTheDocument()
+    // Anchor target — the members nav "Events" link relies on #events
+    // resolving to this section so the browser's default anchor jump
+    // scrolls it into view.
+    expect(container.querySelector('section#events')).not.toBeNull()
   })
 
   it('moves focus to the answer heading on every submission (including same-query resubmit)', async () => {
