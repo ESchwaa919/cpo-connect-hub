@@ -7,6 +7,7 @@ export interface MonthConfig {
 }
 
 export const months: MonthConfig[] = [
+  { id: '2026-05', label: 'May 2026', component: lazy(() => import('./may-2026')) },
   { id: '2026-04', label: 'April 2026', component: lazy(() => import('./apr-2026')) },
   { id: '2026-03', label: 'March 2026', component: lazy(() => import('./mar-2026')) },
   { id: '2026-02', label: 'February 2026', component: lazy(() => import('./feb-2026')) },
