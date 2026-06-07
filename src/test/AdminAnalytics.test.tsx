@@ -45,7 +45,7 @@ const sampleOverview = {
     perUser: [
       {
         email: 'alice@example.com',
-        events: 50,
+        pageViews: 50,
         activeDays: 5,
         lastSeen: '2026-06-02T10:00:00.000Z',
       },

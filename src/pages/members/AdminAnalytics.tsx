@@ -22,7 +22,7 @@ interface TopPath {
 
 interface PerUser {
   email: string
-  events: number
+  pageViews: number
   activeDays: number
   lastSeen: string
 }
@@ -181,10 +181,10 @@ function Body({ data }: { data: AnalyticsOverview }) {
           <EmptyNote>No member activity recorded yet.</EmptyNote>
         ) : (
           <SimpleTable
-            head={['Member', 'Events', 'Active days', 'Last seen']}
+            head={['Member', 'Page views', 'Active days', 'Last seen']}
             rows={data.engagement.perUser.map((u) => [
               u.email,
-              formatNumber(u.events),
+              formatNumber(u.pageViews),
               formatNumber(u.activeDays),
               formatTimestamp(u.lastSeen),
             ])}

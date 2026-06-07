@@ -5,11 +5,44 @@ import './_requireIngestAuth-setup'
 import { describe, it, expect, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import pool from '../../server/db'
-import { pageViewHandler } from '../../server/routes/events'
+import { pageViewHandler, toPathname } from '../../server/routes/events'
 import { makeReq, makeRes } from './_express-mocks'
 
 const dbAvailable = !!process.env.DATABASE_URL
 const dbDescribe = dbAvailable ? describe : describe.skip
+
+// Pure sanitization unit tests — no DB needed. These guard the magic-link
+// token leak requirement: query strings and fragments must never survive.
+describe('toPathname', () => {
+  it('keeps a plain root-relative path', () => {
+    expect(toPathname('/members/directory')).toBe('/members/directory')
+  })
+
+  it('strips the query string (no magic-link token can be stored)', () => {
+    expect(toPathname('/api/auth/verify?token=secret-abc123')).toBe(
+      '/api/auth/verify',
+    )
+  })
+
+  it('strips the fragment', () => {
+    expect(toPathname('/members/whats-talked#events')).toBe(
+      '/members/whats-talked',
+    )
+  })
+
+  it('drops the host from a protocol-relative input, keeping only the path', () => {
+    expect(toPathname('//evil.com/members/profile?token=x')).toBe(
+      '/members/profile',
+    )
+  })
+
+  it('rejects non-root-relative and non-string inputs', () => {
+    expect(toPathname('https://example.com/x?token=y')).toBeNull()
+    expect(toPathname('members/directory')).toBeNull()
+    expect(toPathname(12345)).toBeNull()
+    expect(toPathname(undefined)).toBeNull()
+  })
+})
 
 /** trackEvent is fire-and-forget; poll the events table for the row. */
 async function waitForRow(path: string): Promise<{
@@ -64,6 +97,27 @@ dbDescribe('pageViewHandler (real DB)', () => {
     expect(row).not.toBeNull()
     expect(row?.email).toBe(email)
     expect(row?.metadata).toMatchObject({ path, ref: '/members/whats-talked' })
+  })
+
+  it('persists only the pathname when a query string is sent (token never stored)', async () => {
+    const base = `/members/secure-${randomUUID()}`
+    paths.push(base)
+
+    const req = makeReq({
+      body: { path: `${base}?token=super-secret`, ref: `${base}#frag` },
+      user: { id: 's', email: `weta-pv-${randomUUID()}@test.local`, name: 'X' },
+    })
+    const res = makeRes()
+    pageViewHandler(req, res)
+
+    expect(res.status).toHaveBeenCalledWith(204)
+
+    const row = await waitForRow(base)
+    expect(row).not.toBeNull()
+    expect(row?.metadata.path).toBe(base)
+    expect(row?.metadata.ref).toBe(base)
+    // Belt-and-suspenders: the secret must not appear anywhere in metadata.
+    expect(JSON.stringify(row?.metadata)).not.toContain('super-secret')
   })
 
   it('records a NULL email for an anonymous visit', async () => {

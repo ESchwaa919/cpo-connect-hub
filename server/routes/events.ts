@@ -4,9 +4,27 @@ import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 const router = Router()
 
-// Cap stored path length so a hostile or buggy client can't bloat the
-// events table. Real in-app paths are well under this.
+// Cap input length so a hostile or buggy client can't bloat the events
+// table. Real in-app paths are well under this.
 const MAX_PATH_LEN = 512
+
+/** Reduces client-supplied input to a safe root-relative pathname, or null.
+ *  Strips any query string / fragment so secrets in URLs (e.g. a magic-link
+ *  `?token=…`) can NEVER be persisted, even if a caller sends a full URL.
+ *  Only root-relative inputs are accepted; everything else → null. */
+export function toPathname(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.slice(0, MAX_PATH_LEN)
+  if (!trimmed.startsWith('/')) return null
+  try {
+    // Resolve against a throwaway origin; we keep ONLY the pathname, so any
+    // host (from a protocol-relative `//host/…`), query, or fragment is
+    // discarded.
+    return new URL(trimmed, 'http://x').pathname
+  } catch {
+    return null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/events/page-view — basic visit tracking
@@ -19,13 +37,12 @@ const MAX_PATH_LEN = 512
 // ---------------------------------------------------------------------------
 export function pageViewHandler(req: Request, res: Response): void {
   const body = (req.body ?? {}) as { path?: unknown; ref?: unknown }
-  const path =
-    typeof body.path === 'string' ? body.path.slice(0, MAX_PATH_LEN) : null
+  const path = toPathname(body.path)
 
   // No usable path → nothing to record, but still 204 so the client treats
   // it as success and doesn't retry.
   if (path) {
-    const ref = typeof body.ref === 'string' ? body.ref.slice(0, MAX_PATH_LEN) : null
+    const ref = toPathname(body.ref)
     trackEvent(AnalyticsEvent.PAGE_VIEW, req.user?.email, {
       path,
       ...(ref ? { ref } : {}),

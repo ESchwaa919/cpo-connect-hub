@@ -11,8 +11,7 @@ const WINDOW = "30 days"
 // admin readout, not an analytics product.
 const TOP_PATHS_LIMIT = 15
 const PER_USER_LIMIT = 25
-const JOURNEY_ROW_SCAN = 250 // recent page_view rows to assemble journeys from
-const JOURNEY_USERS = 10 // distinct users shown
+const JOURNEY_USERS = 10 // most-recently-active distinct users shown
 const JOURNEY_STEPS = 12 // most recent paths per user
 
 function sendServerError(res: Response, route: string, err: unknown): void {
@@ -86,53 +85,72 @@ export async function analyticsOverviewHandler(
          ORDER BY COUNT(*) DESC, path
          LIMIT ${TOP_PATHS_LIMIT}`,
       ),
-      // Per-user engagement (all event types) in the window.
+      // Per-user engagement, scoped to page views in the window so it stays
+      // consistent with the rest of the page (a login-only user shouldn't
+      // appear here, and other event types must not inflate the count).
       pool.query<{
         email: string
-        events: string
+        page_views: string
         active_days: string
         last_seen: Date | null
       }>(
         `SELECT email,
-           COUNT(*)::text AS events,
+           COUNT(*)::text AS page_views,
            COUNT(DISTINCT date_trunc('day', created_at AT TIME ZONE 'UTC'))::text AS active_days,
            MAX(created_at) AS last_seen
          FROM cpo_connect.events
-         WHERE email IS NOT NULL
+         WHERE event = 'page_view' AND email IS NOT NULL
            AND created_at >= NOW() - INTERVAL '${WINDOW}'
          GROUP BY email
          ORDER BY COUNT(*) DESC, MAX(created_at) DESC
          LIMIT ${PER_USER_LIMIT}`,
       ),
-      // Recent page views (newest first) used to assemble per-user journeys.
+      // Per-user journeys: the most-recently-active distinct users, each with
+      // their last JOURNEY_STEPS page views in chronological order. A window
+      // function picks the top users and trims each user's steps in SQL so a
+      // single hyperactive member can't crowd others out of the result.
       pool.query<{ email: string; path: string; created_at: Date }>(
-        `SELECT email, metadata->>'path' AS path, created_at
-         FROM cpo_connect.events
-         WHERE event = 'page_view' AND email IS NOT NULL
-           AND metadata->>'path' IS NOT NULL
-         ORDER BY created_at DESC
-         LIMIT ${JOURNEY_ROW_SCAN}`,
+        `WITH page_views AS (
+           SELECT email, metadata->>'path' AS path, created_at
+           FROM cpo_connect.events
+           WHERE event = 'page_view' AND email IS NOT NULL
+             AND metadata->>'path' IS NOT NULL
+         ),
+         recent_users AS (
+           SELECT email, MAX(created_at) AS last_seen
+           FROM page_views
+           GROUP BY email
+           ORDER BY last_seen DESC
+           LIMIT ${JOURNEY_USERS}
+         ),
+         ranked AS (
+           SELECT pv.email, pv.path, pv.created_at, ru.last_seen,
+             ROW_NUMBER() OVER (
+               PARTITION BY pv.email ORDER BY pv.created_at DESC
+             ) AS rn
+           FROM page_views pv
+           JOIN recent_users ru ON ru.email = pv.email
+         )
+         SELECT email, path, created_at
+         FROM ranked
+         WHERE rn <= ${JOURNEY_STEPS}
+         ORDER BY last_seen DESC, created_at ASC`,
       ),
     ])
 
-    // Group the recent page views by user, preserving recency order, then
-    // present the most-recently-active users with their last N steps in
-    // chronological order.
+    // Rows arrive ordered by user (most-recent-active first) then
+    // chronologically within each user, so a simple grouped push rebuilds the
+    // journeys in display order.
     const byUser = new Map<string, Array<{ path: string; at: string }>>()
     for (const row of journeyRows.rows) {
-      let steps = byUser.get(row.email)
-      if (!steps) {
-        steps = []
-        byUser.set(row.email, steps)
-      }
-      if (steps.length < JOURNEY_STEPS) {
-        // Rows arrive newest-first; unshift to end up chronological.
-        steps.unshift({ path: row.path, at: toIso(row.created_at) })
-      }
+      const steps = byUser.get(row.email) ?? []
+      steps.push({ path: row.path, at: toIso(row.created_at) })
+      byUser.set(row.email, steps)
     }
-    const journeys = Array.from(byUser.entries())
-      .slice(0, JOURNEY_USERS)
-      .map(([email, steps]) => ({ email, steps }))
+    const journeys = Array.from(byUser.entries()).map(([email, steps]) => ({
+      email,
+      steps,
+    }))
 
     res.status(200).json({
       windowDays: 30,
@@ -155,7 +173,7 @@ export async function analyticsOverviewHandler(
         })),
         perUser: perUser.rows.map((r) => ({
           email: r.email,
-          events: Number(r.events),
+          pageViews: Number(r.page_views),
           activeDays: Number(r.active_days),
           lastSeen: toIso(r.last_seen),
         })),

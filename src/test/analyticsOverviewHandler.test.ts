@@ -17,7 +17,7 @@ interface Overview {
   users: { unique: number; repeat: number }
   engagement: {
     topPaths: { path: string; count: number }[]
-    perUser: { email: string; events: number; activeDays: number; lastSeen: string }[]
+    perUser: { email: string; pageViews: number; activeDays: number; lastSeen: string }[]
   }
   journeys: { email: string; steps: { path: string; at: string }[] }[]
 }
@@ -37,7 +37,7 @@ dbDescribe('analyticsOverviewHandler (real DB)', () => {
   afterAll(async () => {
     await pool.query(
       `DELETE FROM cpo_connect.events
-       WHERE event = 'page_view' AND metadata->>'path' = $1`,
+       WHERE metadata->>'path' = $1`,
       [path],
     )
   })
@@ -45,9 +45,11 @@ dbDescribe('analyticsOverviewHandler (real DB)', () => {
   it('computes visits, unique/repeat users, and returns well-formed groups', async () => {
     const before = await getOverview()
 
-    // 3 rows for emailA across 2 distinct days (today + yesterday) → repeat.
-    // 2 rows for emailB on a single day → unique but not repeat.
-    // 1 anonymous (NULL email) row. 6 page_view rows total.
+    // 3 page_view rows for emailA across 2 distinct days (today + yesterday)
+    // → repeat. 2 page_view rows for emailB on a single day → unique but not
+    // repeat. 1 anonymous (NULL email) page_view. 6 page_view rows total.
+    // Plus 1 profile_view for emailA — a non-page event that must NOT count
+    // toward visits or emailA's page-view engagement.
     const meta = JSON.stringify({ path })
     await pool.query(
       `INSERT INTO cpo_connect.events (event, email, metadata, created_at) VALUES
@@ -56,7 +58,8 @@ dbDescribe('analyticsOverviewHandler (real DB)', () => {
          ('page_view', $1, $3::jsonb, NOW() - INTERVAL '1 day'),
          ('page_view', $2, $3::jsonb, NOW()),
          ('page_view', $2, $3::jsonb, NOW()),
-         ('page_view', NULL, $3::jsonb, NOW())`,
+         ('page_view', NULL, $3::jsonb, NOW()),
+         ('profile_view', $1, $3::jsonb, NOW())`,
       [emailA, emailB, meta],
     )
 
@@ -87,8 +90,17 @@ dbDescribe('analyticsOverviewHandler (real DB)', () => {
     }
     for (const u of after.engagement.perUser) {
       expect(typeof u.email).toBe('string')
-      expect(typeof u.events).toBe('number')
+      expect(typeof u.pageViews).toBe('number')
       expect(typeof u.activeDays).toBe('number')
+    }
+
+    // When emailA surfaces in the (capped) per-user list, its engagement must
+    // reflect ONLY page views: 3 page_views across 2 days — the extra
+    // profile_view must not inflate pageViews to 4 or activeDays.
+    const userA = after.engagement.perUser.find((u) => u.email === emailA)
+    if (userA) {
+      expect(userA.pageViews).toBe(3)
+      expect(userA.activeDays).toBe(2)
     }
     for (const j of after.journeys) {
       expect(typeof j.email).toBe('string')
