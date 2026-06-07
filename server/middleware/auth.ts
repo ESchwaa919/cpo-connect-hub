@@ -15,51 +15,65 @@ declare global {
   }
 }
 
-export async function requireAuth(
+/** Resolves the authenticated user from the `cpo_session` cookie, or `null`
+ *  when the cookie is missing / invalid / expired. Never writes to the
+ *  response — callers decide whether absence is fatal (requireAuth) or
+ *  acceptable (optionalAuth). */
+async function resolveUserFromCookie(
   req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+): Promise<{ id: string; email: string; name: string } | null> {
   const cookie = req.cookies?.cpo_session as string | undefined
-
-  if (!cookie) {
-    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
-    return
-  }
+  if (!cookie) return null
 
   // Cookie format: s:<signed-value> — strip the s: prefix before unsigning
   const raw = cookie.startsWith('s:') ? cookie.slice(2) : cookie
   const secret = process.env.SESSION_SECRET
 
   if (!secret) {
-    console.error('requireAuth: SESSION_SECRET is not set')
-    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
-    return
+    console.error('resolveUserFromCookie: SESSION_SECRET is not set')
+    return null
   }
 
   const sessionId = unsign(raw, secret)
-
-  if (sessionId === false) {
-    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
-    return
-  }
+  if (sessionId === false) return null
 
   try {
     const result = await pool.query(
       'SELECT id, email, name FROM cpo_connect.sessions WHERE id = $1 AND expires_at > NOW()',
-      [sessionId]
+      [sessionId],
     )
-
-    if (result.rows.length === 0) {
-      res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
-      return
-    }
-
-    const session = result.rows[0] as { id: string; email: string; name: string }
-    req.user = { id: session.id, email: session.email, name: session.name }
-    next()
+    if (result.rows.length === 0) return null
+    return result.rows[0] as { id: string; email: string; name: string }
   } catch (err) {
-    console.error('requireAuth: DB error —', (err as Error).message)
-    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
+    console.error('resolveUserFromCookie: DB error —', (err as Error).message)
+    return null
   }
+}
+
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const user = await resolveUserFromCookie(req)
+  if (!user) {
+    res.status(401).json({ error: 'Not authenticated', code: 'not_authenticated' })
+    return
+  }
+  req.user = user
+  next()
+}
+
+/** Like requireAuth, but never rejects: sets `req.user` when a valid session
+ *  cookie is present and leaves it undefined otherwise, always calling next().
+ *  Used by the page-view tracking endpoint so anonymous visits are still
+ *  recorded (with a NULL email). */
+export async function optionalAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const user = await resolveUserFromCookie(req)
+  if (user) req.user = user
+  next()
 }

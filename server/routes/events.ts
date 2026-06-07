@@ -1,6 +1,41 @@
-import { Router } from 'express'
+import { Router, type Request, type Response } from 'express'
+import { optionalAuth } from '../middleware/auth.ts'
+import { trackEvent, AnalyticsEvent } from '../services/analytics.ts'
 
 const router = Router()
+
+// Cap stored path length so a hostile or buggy client can't bloat the
+// events table. Real in-app paths are well under this.
+const MAX_PATH_LEN = 512
+
+// ---------------------------------------------------------------------------
+// POST /api/events/page-view — basic visit tracking
+//
+// The SPA fires this on every client-side route change. We record one
+// PAGE_VIEW row per navigation so admins can derive visits, repeat users,
+// journeys, and engagement. `optionalAuth` resolves the session email when
+// present (anonymous visits are recorded with email = NULL). Fire-and-forget:
+// we never block the client and always answer 204.
+// ---------------------------------------------------------------------------
+export function pageViewHandler(req: Request, res: Response): void {
+  const body = (req.body ?? {}) as { path?: unknown; ref?: unknown }
+  const path =
+    typeof body.path === 'string' ? body.path.slice(0, MAX_PATH_LEN) : null
+
+  // No usable path → nothing to record, but still 204 so the client treats
+  // it as success and doesn't retry.
+  if (path) {
+    const ref = typeof body.ref === 'string' ? body.ref.slice(0, MAX_PATH_LEN) : null
+    trackEvent(AnalyticsEvent.PAGE_VIEW, req.user?.email, {
+      path,
+      ...(ref ? { ref } : {}),
+    })
+  }
+
+  res.status(204).end()
+}
+
+router.post('/page-view', optionalAuth, pageViewHandler)
 
 const CALENDAR_API_ID = 'cal-FlrNymwoPAxiNWC'
 const LUMA_URL = `https://api.lu.ma/calendar/get-items?calendar_api_id=${CALENDAR_API_ID}&period=future&pagination_limit=4`
