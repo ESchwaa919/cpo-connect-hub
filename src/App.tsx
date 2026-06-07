@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { AdminRoute } from "@/components/AdminRoute"
 import { MembersLayout } from "@/components/members/MembersLayout"
+import { RouteTracker } from "@/components/RouteTracker"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { WhatsTalkedErrorFallback } from "@/components/members/whats-talked/WhatsTalkedErrorFallback"
 import Index from "@/pages/Index"
@@ -17,6 +18,7 @@ import Directory from "@/pages/members/Directory"
 import Profile from "@/pages/members/Profile"
 import WhatsTalked from "@/pages/members/WhatsTalked"
 import AdminIngestionHistory from "@/pages/members/AdminIngestionHistory"
+import AdminAnalytics from "@/pages/members/AdminAnalytics"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,6 +36,7 @@ function App() {
         <BrowserRouter>
           <ThemeProvider>
             <AuthProvider>
+            <RouteTracker />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/faq" element={<Faq />} />
@@ -93,6 +96,16 @@ function App() {
                   <AdminRoute>
                     <MembersLayout>
                       <AdminIngestionHistory />
+                    </MembersLayout>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/members/admin/analytics"
+                element={
+                  <AdminRoute>
+                    <MembersLayout>
+                      <AdminAnalytics />
                     </MembersLayout>
                   </AdminRoute>
                 }

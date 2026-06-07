@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, X, LogOut, Sun, Moon, Download, User, ShieldCheck } from "lucide-react"
+import { Menu, X, LogOut, Sun, Moon, Download, User, ShieldCheck, BarChart3 } from "lucide-react"
 import { useInstallPrompt } from "@/hooks/useInstallPrompt"
 import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
@@ -203,6 +203,14 @@ export function Navbar() {
                       </Link>
                     </DropdownMenuItem>
                   )}
+                  {user.isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/members/admin/analytics">
+                        <BarChart3 className="mr-2 h-4 w-4" />
+                        Admin · Analytics
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => logout()}>
                     <LogOut className="mr-2 h-4 w-4" />
@@ -285,6 +293,20 @@ export function Navbar() {
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Admin · Ingestion
+                    </Link>
+                  )}
+                  {user?.isAdmin && (
+                    <Link
+                      to="/members/admin/analytics"
+                      className={cn(
+                        "text-sm font-medium transition-colors hover:text-foreground",
+                        location.pathname === "/members/admin/analytics"
+                          ? "text-foreground"
+                          : "text-muted-foreground"
+                      )}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin · Analytics
                     </Link>
                   )}
                 </>
