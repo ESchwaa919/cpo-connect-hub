@@ -21,7 +21,41 @@ const MEDIA_OMITTED_RE =
 const DELETED_RE = /^This message was deleted\.?$/i
 const ENCRYPTION_NOTICE_RE = /^Messages and calls are end-to-end encrypted/i
 
-function isSystemText(text: string): boolean {
+// Most WhatsApp system events ("Alice added Bob", "Bob left") have no colon,
+// so LINE_RE never matches them and they're dropped for free. But a handful
+// carry a "Name:" (or group-name) author prefix — so LINE_RE DOES match and
+// they'd otherwise land as real messages, polluting the search index and the
+// monthly counts. These filter that class explicitly. Some are author-
+// independent (matched on text alone); the membership/group ones need the
+// author because WhatsApp repeats the actor's name in the body.
+const SECURITY_CODE_RE = /^Your security code with .+ changed\.?$/i
+const CREATED_GROUP_RE = /^You created the group\b/i
+const NOW_ADMIN_RE = /^You're now an admin$/i
+const ADVANCED_PRIVACY_RE = /turned (on|off) advanced chat privacy\b/i
+const PHONE_CHANGED_RE = /changed their phone number to a new number/i
+
+/** Membership / group-management notices that carry the actor's name as the
+ *  message author. Two shapes occur:
+ *   - actor-authored: "<actor> was added|left|joined|removed …",
+ *     "<actor> changed the/this group…/the subject…"
+ *   - addee-authored: "<adder> added <addee>" is attributed to <addee>, so the
+ *     body ends with the author's own name (optionally "~ "-prefixed). */
+function isMembershipEvent(author: string, text: string): boolean {
+  const stripped = text.replace(/^~\s*/, '')
+  if (stripped.startsWith(author + ' ')) {
+    const rest = stripped.slice(author.length + 1)
+    if (rest === 'was added' || rest === 'left' || rest === 'joined') return true
+    if (/^joined using this group/i.test(rest)) return true
+    if (/^removed /i.test(rest)) return true
+    if (/^changed (the|this) group/i.test(rest)) return true
+    if (/^changed the subject/i.test(rest)) return true
+  }
+  const added = /^.+ added (?:~\s*)?(.+)$/.exec(stripped)
+  if (added && added[1].trim() === author) return true
+  return false
+}
+
+function isSystemText(author: string, text: string): boolean {
   const t = text.trim()
   // An empty/whitespace-only body means the line was `Alice:` with no
   // message content — treat as a placeholder and drop it so it doesn't
@@ -30,6 +64,12 @@ function isSystemText(text: string): boolean {
   if (MEDIA_OMITTED_RE.test(t)) return true
   if (DELETED_RE.test(t)) return true
   if (ENCRYPTION_NOTICE_RE.test(t)) return true
+  if (SECURITY_CODE_RE.test(t)) return true
+  if (CREATED_GROUP_RE.test(t)) return true
+  if (NOW_ADMIN_RE.test(t)) return true
+  if (ADVANCED_PRIVACY_RE.test(t)) return true
+  if (PHONE_CHANGED_RE.test(t)) return true
+  if (isMembershipEvent(author, t)) return true
   return false
 }
 
@@ -91,7 +131,7 @@ interface InProgress {
 function commit(messages: ParsedMessage[], ip: InProgress | null): void {
   if (!ip) return
   const text = ip.lines.join('\n')
-  if (isSystemText(text)) return
+  if (isSystemText(ip.author, text)) return
   messages.push({ author: ip.author, text, sentAt: ip.sentAt })
 }
 
